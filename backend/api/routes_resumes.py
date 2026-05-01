@@ -915,9 +915,106 @@ async def import_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)
 
 # ── Score Check ────────────────────────────────────────────────────────────
 
-@router.post("/{resume_id}/score-check")
+def _resume_to_score_text(json_data: dict) -> str:
+    """Flatten a Resume.json_data into the plaintext form passed to the scorer."""
+    parts = []
+    header = json_data.get("header", {})
+    if header.get("name"):
+        parts.append(header["name"])
+    if header.get("title"):
+        parts.append(header["title"])
+    if json_data.get("summary"):
+        parts.append(json_data["summary"])
+    for exp in json_data.get("experience", []):
+        parts.append(f"{exp.get('title', '')} at {exp.get('company', '')}")
+        for b in exp.get("bullets", []):
+            parts.append(f"- {b}")
+    for edu in json_data.get("education", []):
+        parts.append(f"{edu.get('degree', '')} — {edu.get('school', '')}")
+    for sk in json_data.get("skills", []):
+        if isinstance(sk, dict):
+            parts.append(f"{sk.get('category', '')}: {sk.get('items', '')}")
+        elif isinstance(sk, str):
+            parts.append(sk)
+    return "\n".join(parts)
+
+
+async def _score_resume_impl(resume_id: str, depth: str):
+    """Background worker: score a tailored resume against its linked job.
+
+    Runs under launch_background → progress visible via /monitor/active so the
+    spinner survives navigation away from /resumes.
+    """
+    from backend.analyzer.cv_scorer import score_job_sync
+
+    db = SessionLocal()
+    try:
+        resume = db.query(Resume).filter(Resume.id == resume_id).first()
+        if not resume:
+            logger.error(f"Score: resume {resume_id} missing at execution time")
+            return
+        if not resume.job_id:
+            logger.error(f"Score: resume {resume_id} has no linked job")
+            return
+
+        job = db.query(Job).filter(Job.id == resume.job_id).first()
+        if not job:
+            logger.error(f"Score: linked job {resume.job_id} not found")
+            return
+
+        resume_text = _resume_to_score_text(resume.json_data or {})
+        if len(resume_text) < 50:
+            logger.warning(f"Score: resume {resume_id} has insufficient text ({len(resume_text)} chars)")
+            return
+
+        cv_texts = {"Tailored": resume_text}
+        result = await score_job_sync(job, cv_texts, db=db, depth=depth)
+        if not result:
+            logger.error(f"Score: scoring failed for resume {resume_id}")
+            return
+
+        tailored_score = None
+        scores = result.get("scores", result)
+        if isinstance(scores, dict):
+            tailored_score = scores.get("Tailored")
+
+        updated_scores = dict(job.cv_scores or {})
+        if tailored_score is not None:
+            updated_scores["Tailored"] = tailored_score
+            job.cv_scores = updated_scores
+            numeric = {k: v for k, v in updated_scores.items() if isinstance(v, (int, float))}
+            if numeric:
+                job.best_cv = max(numeric, key=numeric.get)
+                try:
+                    job.best_cv_score = float(max(numeric.values()))
+                except (ValueError, TypeError):
+                    job.best_cv_score = None
+
+        if depth == "full" and result.get("_scoring_report"):
+            report = result["_scoring_report"]
+            report["scored_with"] = "Tailored"
+            existing = dict(job.scoring_report or {})
+            if existing and "summary" in existing:
+                old_cv = existing.pop("scored_with", job.best_cv or "Unknown")
+                existing = {old_cv: existing}
+            existing["Tailored"] = report
+            job.scoring_report = existing
+
+        db.commit()
+        logger.info(f"Score: resume {resume_id} → job {resume.job_id} = {tailored_score} (depth={depth})")
+    finally:
+        db.close()
+
+
+@router.post("/{resume_id}/score-check", status_code=202)
 async def score_check(resume_id: str, request_body: dict = None, db: Session = Depends(get_db)):
-    """Score a tailored resume against its linked job. Saves result to job as 'Tailored' CV score."""
+    """Score a tailored resume against its linked job in the background.
+
+    Returns 202 + run_id immediately. Progress trackable via GET /api/monitor/active
+    (job_type=score_resume). Result lands in the job's cv_scores under 'Tailored'.
+    """
+    import uuid as _uuid
+
     resume = db.query(Resume).filter(Resume.id == resume_id).first()
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
@@ -927,96 +1024,32 @@ async def score_check(resume_id: str, request_body: dict = None, db: Session = D
     job = db.query(Job).filter(Job.id == resume.job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Linked job not found")
+    if not (job.description or "").strip():
+        raise HTTPException(status_code=400, detail="Linked job has no description")
+
+    if len(_resume_to_score_text(resume.json_data or {})) < 50:
+        raise HTTPException(status_code=400, detail="Resume has insufficient text for scoring")
 
     depth = (request_body or {}).get("depth", "light")
     if depth not in ("light", "full"):
         depth = "light"
 
-    # Convert resume JSON to plain text for scoring
-    json_data = resume.json_data or {}
-    text_parts = []
-    header = json_data.get("header", {})
-    if header.get("name"):
-        text_parts.append(header["name"])
-    if header.get("title"):
-        text_parts.append(header["title"])
-    if json_data.get("summary"):
-        text_parts.append(json_data["summary"])
-    for exp in json_data.get("experience", []):
-        text_parts.append(f"{exp.get('title', '')} at {exp.get('company', '')}")
-        for b in exp.get("bullets", []):
-            text_parts.append(f"- {b}")
-    for edu in json_data.get("education", []):
-        text_parts.append(f"{edu.get('degree', '')} — {edu.get('school', '')}")
-    for sk in json_data.get("skills", []):
-        if isinstance(sk, dict):
-            text_parts.append(f"{sk.get('category', '')}: {sk.get('items', '')}")
-        elif isinstance(sk, str):
-            text_parts.append(sk)
-
-    resume_text = "\n".join(text_parts)
-    if len(resume_text) < 50:
-        raise HTTPException(status_code=400, detail="Resume has insufficient text for scoring")
-
-    # Get original best score from job.cv_scores (before tailored)
-    existing_scores = dict(job.cv_scores or {})
-    original_score = existing_scores.get("Tailored")  # previous tailored score if re-running
-    if original_score is None:
-        # Fall back to best non-tailored score
-        numeric = {k: v for k, v in existing_scores.items() if k != "Tailored" and isinstance(v, (int, float))}
-        original_score = max(numeric.values()) if numeric else None
-
-    # Run LLM scoring with "Tailored" as the CV name
-    from backend.analyzer.cv_scorer import score_job_sync
-    cv_texts = {"Tailored": resume_text}
-    result = await score_job_sync(job, cv_texts, db=db, depth=depth)
-
-    if not result:
-        raise HTTPException(status_code=500, detail="Scoring failed -- check LLM configuration")
-
-    # Extract the tailored score
-    tailored_score = None
-    scores = result.get("scores", result)
-    if isinstance(scores, dict):
-        tailored_score = scores.get("Tailored")
-
-    # Save score to job
-    updated_scores = dict(job.cv_scores or {})
-    if tailored_score is not None:
-        updated_scores["Tailored"] = tailored_score
-        job.cv_scores = updated_scores
-        # Update best_cv if tailored is now highest
-        numeric = {k: v for k, v in updated_scores.items() if isinstance(v, (int, float))}
-        if numeric:
-            best_name = max(numeric, key=numeric.get)
-            job.best_cv = best_name
-
-    # Save report per CV (nested dict)
-    if depth == "full" and result.get("_scoring_report"):
-        report = result["_scoring_report"]
-        report["scored_with"] = "Tailored"
-        existing = dict(job.scoring_report or {})
-        # Migrate flat format to nested if needed
-        if existing and "summary" in existing:
-            old_cv = existing.pop("scored_with", job.best_cv or "Unknown")
-            existing = {old_cv: existing}
-        existing["Tailored"] = report
-        job.scoring_report = existing
-
-    db.commit()
-
-    response = {
-        "original_score": original_score,
-        "tailored_score": tailored_score,
-        "delta": (tailored_score - original_score) if tailored_score is not None and original_score is not None else None,
-        "depth": depth,
-        "job_title": job.title,
-        "job_company": job.company,
-    }
-    if depth == "full" and result.get("_scoring_report"):
-        response["report"] = result["_scoring_report"]
-
-    return response
+    scope = f"{resume.job_id}:resume:{resume_id}"
+    try:
+        run_id = launch_background(
+            "score_resume",
+            _score_resume_impl,
+            trigger="manual",
+            scope_key=scope,
+            target_job_id=_uuid.UUID(str(resume.job_id)),
+            func_kwargs={"resume_id": resume_id, "depth": depth},
+        )
+        return {"run_id": run_id, "status": "running", "depth": depth, "resume_id": resume_id}
+    except JobAlreadyRunningError as e:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": f"{e.job_type} is already running for this resume"},
+        )
 
 
 # ── Tracer Stats ───────────────────────────────────────────────────────────

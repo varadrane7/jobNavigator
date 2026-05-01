@@ -126,6 +126,8 @@ export default function ResumeBuilder() {
   const pendingTailorsRef = useRef([])
   pendingTailorsRef.current = pendingTailors  // keep ref in sync with state on every render
   const [selectedId, setSelectedId] = useState(null)
+  const selectedIdRef = useRef(null)
+  selectedIdRef.current = selectedId
   const [editData, setEditData] = useState(null)
   const [template, setTemplate] = useState('')
   const [pageFormat, setPageFormat] = useState('letter')
@@ -154,10 +156,16 @@ export default function ResumeBuilder() {
   const [showDiffModal, setShowDiffModal] = useState(false)
   const [baseData, setBaseData] = useState(null)
   const [diffDecisions, setDiffDecisions] = useState({})
-  const [scoreChecking, setScoreChecking] = useState({}) // { [resumeId]: 'light' | 'full' } — scoped per-resume so switching selection doesn't leak the spinner
+  // In-flight score_resume runs synced from /monitor/active so the spinner survives navigation.
+  // Shape: [{run_id, resume_id, depth, started_at}]
+  const [pendingScores, setPendingScores] = useState([])
+  const pendingScoresRef = useRef([])
+  pendingScoresRef.current = pendingScores
   const [scoreResult, setScoreResult] = useState(null)
   const [jobUrl, setJobUrl] = useState(null)
   const [jobId, setJobId] = useState(null)
+  const jobIdRef = useRef(null)
+  jobIdRef.current = jobId
   const [jobMenuOpen, setJobMenuOpen] = useState(false)
   const [applyingJob, setApplyingJob] = useState(false)
   const saveTimeoutRef = useRef(null)
@@ -203,7 +211,29 @@ export default function ResumeBuilder() {
           target_title: r.target_title || pendingTailorsRef.current.find(p => p.run_id === r.run_id)?.target_title,
         }))
 
+        // ── score_resume runs (scope_key = "<job_id>:resume:<resume_id>") ──
+        // Carry forward optimistic entries (POST replied with run_id but the monitor
+        // hasn't surfaced them yet on this poll tick) so the spinner doesn't blink off.
+        const scoreRows = (active || [])
+          .filter(r => r.job_type === 'score_resume')
+          .map(r => {
+            const parts = (r.scope_key || '').split(':')
+            const [_jobId, _kind, resume_id] = parts
+            const prior = pendingScoresRef.current.find(p => p.run_id === r.run_id)
+            return {
+              run_id: r.run_id,
+              resume_id,
+              depth: prior?.depth || 'light',
+              started_at: r.started_at,
+            }
+          }).filter(s => s.resume_id)
+        const scoreServerIds = new Set(scoreRows.map(s => s.run_id))
+        const scoreCarry = pendingScoresRef.current.filter(p => p._optimistic && !scoreServerIds.has(p.run_id))
+        const scoreMerged = [...scoreRows, ...scoreCarry]
+
         if (cancelled) return
+
+        // Tailor diff
         const prevArr = pendingTailorsRef.current
         const prevIds = new Set(prevArr.map(p => p.run_id))
         const nowIds  = new Set(merged.map(p => p.run_id))
@@ -213,6 +243,22 @@ export default function ResumeBuilder() {
         const sameTitles = sameIds && merged.every((m, i) => m.target_title === prevArr[i]?.target_title)
         if (!sameTitles) setPendingTailors(merged)
         if (finished) fetchResumes()
+
+        // Score diff: detect runs that disappeared → refresh job for selected resume
+        const prevScoreArr = pendingScoresRef.current
+        const prevScoreIds = new Set(prevScoreArr.filter(p => !p._optimistic).map(p => p.run_id))
+        const nowScoreIds = new Set(scoreMerged.map(p => p.run_id))
+        const finishedScores = prevScoreArr.filter(p => !p._optimistic && !nowScoreIds.has(p.run_id))
+        const scoreSameIds = prevScoreArr.length === scoreMerged.length &&
+          scoreMerged.every((s, i) => s.run_id === prevScoreArr[i]?.run_id)
+        if (!scoreSameIds) setPendingScores(scoreMerged)
+        if (finishedScores.length > 0) {
+          // If any finished score targeted the currently-selected resume, refresh its scoreResult.
+          const sel = selectedIdRef.current
+          if (sel && finishedScores.some(s => s.resume_id === sel) && jobIdRef.current) {
+            refreshScoreFromJob(jobIdRef.current)
+          }
+        }
       } catch {/* network hiccup — next tick retries */}
     }
 
@@ -258,6 +304,29 @@ export default function ResumeBuilder() {
     setLoading(false)
   }
 
+  // Refresh scoreResult + jobUrl from the resume's linked job. Safe to call any time —
+  // used by selectResume on load and by the score_resume completion handler.
+  const refreshScoreFromJob = async (jobIdToFetch) => {
+    if (!jobIdToFetch) { setScoreResult(null); return }
+    try {
+      const { data: job } = await api.get(`/jobs/${jobIdToFetch}`)
+      if (job.url) setJobUrl(job.url)
+      const scores = job.cv_scores || {}
+      const tailoredScore = scores['Tailored']
+      if (tailoredScore != null) {
+        const numeric = Object.entries(scores).filter(([k, v]) => k !== 'Tailored' && typeof v === 'number')
+        const originalScore = numeric.length ? Math.max(...numeric.map(([, v]) => v)) : null
+        setScoreResult({
+          original_score: originalScore,
+          tailored_score: tailoredScore,
+          delta: originalScore != null ? tailoredScore - originalScore : null,
+        })
+      } else {
+        setScoreResult(null)
+      }
+    } catch {}
+  }
+
   const selectResume = async (r) => {
     setDataLoaded(false)
     setScoreResult(null)
@@ -278,21 +347,7 @@ export default function ResumeBuilder() {
     setJobId(r.job_id || null)
     setJobMenuOpen(false)
     if (r.job_id && !r.is_base) {
-      try {
-        const { data: job } = await api.get(`/jobs/${r.job_id}`)
-        if (job.url) setJobUrl(job.url)
-        const scores = job.cv_scores || {}
-        const tailoredScore = scores['Tailored']
-        if (tailoredScore != null) {
-          const numeric = Object.entries(scores).filter(([k, v]) => k !== 'Tailored' && typeof v === 'number')
-          const originalScore = numeric.length ? Math.max(...numeric.map(([, v]) => v)) : null
-          setScoreResult({
-            original_score: originalScore,
-            tailored_score: tailoredScore,
-            delta: originalScore != null ? tailoredScore - originalScore : null,
-          })
-        }
-      } catch {}
+      await refreshScoreFromJob(r.job_id)
     }
     setDataLoaded(true)
     setPreviewKey(k => k + 1)
@@ -872,34 +927,36 @@ export default function ResumeBuilder() {
                       Review Changes
                     </button>
                   )}
-                  {resumes.find(r => r.id === selectedId)?.job_id && (
-                    <div className="inline-flex">
-                      <button onClick={async () => {
-                        const rid = selectedId  // capture at click time so switching selection mid-scoring doesn't orphan state
-                        setScoreChecking(prev => ({...prev, [rid]: 'light'})); setScoreResult(null)
-                        try {
-                          const { data } = await api.post(`/resumes/${rid}/score-check`, { depth: 'light' })
-                          setScoreResult(data)
-                        } catch (e) { alert('Score failed: ' + (e.response?.data?.detail || e.message)) }
-                        setScoreChecking(prev => { const next = {...prev}; delete next[rid]; return next })
-                      }} disabled={!!scoreChecking[selectedId]}
-                        className="text-xs px-2 py-1 border border-green-300 text-green-700 rounded-l hover:bg-green-50 dark:border-green-700 dark:text-green-300 dark:hover:bg-green-900/30 disabled:opacity-50 flex items-center gap-1">
-                        {scoreChecking[selectedId] === 'light' ? <><Loader2 size={12} className="animate-spin" /> Scoring...</> : 'Quick Score'}
-                      </button>
-                      <button onClick={async () => {
-                        const rid = selectedId
-                        setScoreChecking(prev => ({...prev, [rid]: 'full'})); setScoreResult(null)
-                        try {
-                          const { data } = await api.post(`/resumes/${rid}/score-check`, { depth: 'full' })
-                          setScoreResult(data)
-                        } catch (e) { alert('Score failed: ' + (e.response?.data?.detail || e.message)) }
-                        setScoreChecking(prev => { const next = {...prev}; delete next[rid]; return next })
-                      }} disabled={!!scoreChecking[selectedId]}
-                        className="text-xs px-2 py-1 border border-l-0 border-green-300 text-green-700 rounded-r hover:bg-green-50 dark:border-green-700 dark:text-green-300 dark:hover:bg-green-900/30 disabled:opacity-50 flex items-center gap-1">
-                        {scoreChecking[selectedId] === 'full' ? <><Loader2 size={12} className="animate-spin" /> Scoring...</> : 'Full Score'}
-                      </button>
-                    </div>
-                  )}
+                  {resumes.find(r => r.id === selectedId)?.job_id && (() => {
+                    const activeScore = pendingScores.find(p => p.resume_id === selectedId)
+                    const startScore = async (depth) => {
+                      const rid = selectedId
+                      try {
+                        const { data } = await api.post(`/resumes/${rid}/score-check`, { depth })
+                        // Optimistically register so the spinner shows immediately, before the next poll tick.
+                        // Marked _optimistic so the polling diff doesn't treat its disappearance as completion.
+                        setPendingScores(prev => [
+                          ...prev.filter(p => p.run_id !== data.run_id),
+                          { run_id: data.run_id, resume_id: rid, depth, started_at: new Date().toISOString(), _optimistic: true },
+                        ])
+                      } catch (e) {
+                        if (e.response?.status === 409) {/* already running — poll will surface it */}
+                        else alert('Score failed: ' + (e.response?.data?.detail || e.message))
+                      }
+                    }
+                    return (
+                      <div className="inline-flex">
+                        <button onClick={() => startScore('light')} disabled={!!activeScore}
+                          className="text-xs px-2 py-1 border border-green-300 text-green-700 rounded-l hover:bg-green-50 dark:border-green-700 dark:text-green-300 dark:hover:bg-green-900/30 disabled:opacity-50 flex items-center gap-1">
+                          {activeScore?.depth === 'light' ? <><Loader2 size={12} className="animate-spin" /> Scoring...</> : 'Quick Score'}
+                        </button>
+                        <button onClick={() => startScore('full')} disabled={!!activeScore}
+                          className="text-xs px-2 py-1 border border-l-0 border-green-300 text-green-700 rounded-r hover:bg-green-50 dark:border-green-700 dark:text-green-300 dark:hover:bg-green-900/30 disabled:opacity-50 flex items-center gap-1">
+                          {activeScore?.depth === 'full' ? <><Loader2 size={12} className="animate-spin" /> Scoring...</> : 'Full Score'}
+                        </button>
+                      </div>
+                    )
+                  })()}
                   {scoreResult && (
                     <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 ml-1">
                       {scoreResult.original_score != null && <>Original: <span className="font-semibold text-gray-700 dark:text-gray-300">{scoreResult.original_score}</span></>}
