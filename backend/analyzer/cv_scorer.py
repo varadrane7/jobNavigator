@@ -579,13 +579,14 @@ async def score_single_job(job_id: str, cv_ids: list = None, depth: str = "full"
         job_company = job.company
 
         if cv_ids:
-            # Task 11: cv_ids now refers to base Resume IDs (the cvs table is gone).
-            # The reserved value 'persona' is a virtual Resume backed by Persona.resume_content.
+            # cv_ids may reference base Resumes, tailored Resumes (is_base=False), or
+            # the reserved 'persona' magic id (a virtual Resume backed by Persona.resume_content).
+            # No is_base filter — explicit IDs are the caller's responsibility.
             from backend.models.db import Resume
             cv_texts = {}
             resume_ids = [c for c in cv_ids if c != _PERSONA_KEY]
             if resume_ids:
-                for r in db.query(Resume).filter(Resume.id.in_(resume_ids), Resume.is_base == True).order_by(Resume.id).all():
+                for r in db.query(Resume).filter(Resume.id.in_(resume_ids)).order_by(Resume.id).all():
                     text = _flatten_resume(r.json_data or {})
                     if text:
                         cv_texts[r.name] = text
