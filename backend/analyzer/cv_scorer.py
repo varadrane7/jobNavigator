@@ -589,7 +589,11 @@ async def score_single_job(job_id: str, cv_ids: list = None, depth: str = "full"
                 for r in db.query(Resume).filter(Resume.id.in_(resume_ids)).order_by(Resume.id).all():
                     text = _flatten_resume(r.json_data or {})
                     if text:
-                        cv_texts[r.name] = text
+                        # Tailored resumes (is_base=False) save under the literal "Tailored"
+                        # label so the frontend's tailored-link handler picks them up and the
+                        # chip stays short. Same convention as POST /resumes/{id}/score-check.
+                        label = "Tailored" if not r.is_base else r.name
+                        cv_texts[label] = text
             if _PERSONA_KEY in cv_ids:
                 cv_texts.update(_get_persona_text(db))
         else:
