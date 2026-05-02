@@ -686,6 +686,18 @@ export default function ResumeBuilder() {
     triggerSave(updated)
   }
 
+  const moveSkillRow = (key, dir) => {
+    const updated = JSON.parse(JSON.stringify(editData))
+    const entries = Object.entries(updated.skills || {})
+    const idx = entries.findIndex(([k]) => k === key)
+    const j = idx + dir
+    if (idx < 0 || j < 0 || j >= entries.length) return
+    ;[entries[idx], entries[j]] = [entries[j], entries[idx]]
+    updated.skills = Object.fromEntries(entries)
+    setEditData(updated)
+    triggerSave(updated)
+  }
+
   if (loading) {
     return (
       <div className="p-6 flex items-center gap-2 text-gray-500 dark:text-gray-400">
@@ -1178,8 +1190,16 @@ export default function ResumeBuilder() {
 
             {/* Skills */}
             <CollapsibleSection title="Skills" badge={Object.keys(editData.skills || {}).length}>
-              {Object.entries(editData.skills || {}).map(([key, value]) => (
+              {Object.entries(editData.skills || {}).map(([key, value], idx, arr) => (
                 <div key={key} className="flex gap-2 mb-2 items-start">
+                  <div className="flex flex-col mt-1">
+                    <button onClick={() => moveSkillRow(key, -1)}
+                      disabled={idx === 0}
+                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-20"><ArrowUp size={11} /></button>
+                    <button onClick={() => moveSkillRow(key, 1)}
+                      disabled={idx === arr.length - 1}
+                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-20"><ArrowDown size={11} /></button>
+                  </div>
                   <input
                     type="text"
                     className="border rounded px-2 py-1.5 text-sm w-1/3 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600"
