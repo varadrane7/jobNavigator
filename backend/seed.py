@@ -444,7 +444,7 @@ def cleanup_removed_settings(db):
 
 SEED_SEARCHES = [
     {
-        "name": "LinkedIn Extension",
+        "name": "Extension LI",
         "active": True,
         "search_mode": "linkedin_extension",
         "sources": [],
@@ -452,6 +452,16 @@ SEED_SEARCHES = [
         "title_exclude_keywords": [],
         "company_exclude": [],
         "auto_scoring_depth": "off",
+    },
+    {
+        "name": "Extension",
+        "active": True,
+        "search_mode": "extension",
+        "sources": [],
+        "title_include_keywords": [],
+        "title_exclude_keywords": [],
+        "company_exclude": [],
+        "auto_scoring_depth": "light",
     },
     {
         "name": "Keyword Search",

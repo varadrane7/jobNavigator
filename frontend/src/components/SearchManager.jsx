@@ -10,6 +10,12 @@ const SOURCES = [
   { value: 'direct', label: 'Direct (Playwright)' },
 ]
 
+// Hardcoded extension-import searches: not user-creatable, not deletable, not runnable.
+// `linkedin_extension` covers passive LinkedIn-collections capture.
+// `extension` covers the manual "Save to Job Feed" button (any website).
+const EXTENSION_MODES = ['linkedin_extension', 'extension']
+const isExtensionMode = (mode) => EXTENSION_MODES.includes(mode)
+
 const SOURCE_COLORS = {
   linkedin: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
   indeed: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
@@ -177,8 +183,8 @@ export default function SearchManager() {
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Mode</label>
-          {ed.search_mode === 'linkedin_extension' ? (
-            <input type="text" value="LinkedIn Extension" disabled
+          {isExtensionMode(ed.search_mode) ? (
+            <input type="text" value={ed.search_mode === 'linkedin_extension' ? 'LinkedIn Extension (passive capture)' : 'Extension (manual Save-to-Feed)'} disabled
               className="border rounded px-2 py-1.5 text-sm w-full bg-gray-100 text-gray-500 dark:bg-gray-600 dark:text-gray-400 dark:border-gray-600" />
           ) : (
             <select value={ed.search_mode} onChange={e => {
@@ -198,10 +204,12 @@ export default function SearchManager() {
             </select>
           )}
         </div>
-        {ed.search_mode === 'linkedin_extension' ? (
+        {isExtensionMode(ed.search_mode) ? (
           <div className="col-span-2">
             <div className="p-2 bg-green-50 dark:bg-green-900/30 rounded text-xs text-green-700 dark:text-green-300">
-              Jobs are imported via the Chrome Extension. Configure title/company filters below to auto-filter during import.
+              {ed.search_mode === 'linkedin_extension'
+                ? 'Jobs imported via passive capture on LinkedIn /jobs/collections/* pages. Configure title/company filters below to auto-filter during import.'
+                : 'Jobs saved via the manual "Save to Job Feed" button on any website. Configure auto-score depth + filters here.'}
             </div>
           </div>
         ) : ed.search_mode === 'linkedin_personal' ? (
@@ -277,7 +285,7 @@ export default function SearchManager() {
               min={1} max={100} className="border rounded px-2 py-1.5 text-sm w-full dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600" />
           </div>
         )}
-        {ed.search_mode !== 'levels_fyi' && ed.search_mode !== 'linkedin_personal' && ed.search_mode !== 'jobright' && ed.search_mode !== 'linkedin_extension' && (
+        {ed.search_mode !== 'levels_fyi' && ed.search_mode !== 'linkedin_personal' && ed.search_mode !== 'jobright' && !isExtensionMode(ed.search_mode) && (
           <>
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Location</label>
@@ -398,7 +406,7 @@ export default function SearchManager() {
             <option value="full">Full</option>
           </select>
         </label>
-        {ed.search_mode !== 'linkedin_extension' && (
+        {!isExtensionMode(ed.search_mode) && (
           <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
             Run interval (min):
             <input type="number" min={0} value={ed.run_interval_minutes || 0}
@@ -641,9 +649,10 @@ export default function SearchManager() {
                     s.search_mode === 'levels_fyi' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300' :
                     s.search_mode === 'linkedin_personal' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300' :
                     s.search_mode === 'linkedin_extension' ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300' :
+                    s.search_mode === 'extension' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300' :
                     s.search_mode === 'jobright' ? 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300' :
                     s.search_mode === 'url' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
-                  }`}>{s.search_mode === 'levels_fyi' ? 'Levels.fyi' : s.search_mode === 'linkedin_personal' ? 'LinkedIn Personal' : s.search_mode === 'linkedin_extension' ? 'Extension' : s.search_mode === 'jobright' ? 'Jobright.ai' : s.search_mode === 'keyword' ? 'JobSpy' : s.search_mode}</span>
+                  }`}>{s.search_mode === 'levels_fyi' ? 'Levels.fyi' : s.search_mode === 'linkedin_personal' ? 'LinkedIn Personal' : s.search_mode === 'linkedin_extension' ? 'Extension LI' : s.search_mode === 'extension' ? 'Extension' : s.search_mode === 'jobright' ? 'Jobright.ai' : s.search_mode === 'keyword' ? 'JobSpy' : s.search_mode}</span>
                 </div>
                 {editing !== s.id && (
                   <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -683,13 +692,13 @@ export default function SearchManager() {
                         {s.auto_scoring_depth === 'full' ? 'Full' : 'Light'}
                       </span>
                     )}
-                    {s.search_mode !== 'linkedin_extension' && (
+                    {!isExtensionMode(s.search_mode) && (
                       <button onClick={() => testSearch(s.id)} disabled={testing === s.id || !['keyword', 'levels_fyi', 'linkedin_personal', 'jobright'].includes(s.search_mode)}
                         className="p-1.5 rounded hover:bg-amber-50 dark:hover:bg-amber-900/30 text-amber-600 dark:text-amber-400 disabled:opacity-40" title="Test Search (dry run)">
                         {testing === s.id ? <Loader2 size={16} className="animate-spin" /> : <FlaskConical size={16} />}
                       </button>
                     )}
-                    {s.search_mode !== 'linkedin_extension' && (
+                    {!isExtensionMode(s.search_mode) && (
                       <button onClick={() => runSearch(s.id)} disabled={running === s.id}
                         className="p-1.5 rounded hover:bg-green-50 dark:hover:bg-green-900/30 text-green-600 dark:text-green-400" title="Run Now">
                         {running === s.id ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
@@ -698,7 +707,7 @@ export default function SearchManager() {
                     <button onClick={() => startEdit(s)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500" title="Edit">
                       <Edit2 size={16} />
                     </button>
-                    {s.search_mode !== 'linkedin_extension' && (
+                    {!isExtensionMode(s.search_mode) && (
                       <button onClick={() => deleteSearch(s.id)} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-red-400" title="Delete">
                         <Trash2 size={16} />
                       </button>

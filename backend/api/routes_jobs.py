@@ -344,9 +344,11 @@ async def save_from_extension(body: dict, db: Session = Depends(get_db)):
     # Pull the per-company H-1B median (used by salary fallback) if we know the company.
     comp_obj = find_company_by_name(db, company)
 
-    # Link to the hardcoded "LinkedIn Extension" search so auto-score / search-based
-    # filters apply consistently with the LinkedIn passive-capture flow.
-    ext_search = db.query(Search).filter(Search.search_mode == "linkedin_extension").first()
+    # Link to the hardcoded "Extension" search (manual Save-to-Job-Feed flow).
+    # The "Extension LI" search (search_mode=linkedin_extension) is reserved for the
+    # passive LinkedIn-collections capture path so the two flows can have independent
+    # auto-score / title-filter configs.
+    ext_search = db.query(Search).filter(Search.search_mode == "extension").first()
 
     job = Job(
         external_id=external_id,
