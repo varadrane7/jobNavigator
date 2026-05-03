@@ -31,6 +31,7 @@ def detect_scrape_type(url: str) -> str:
     from backend.scraper.ats.ashby import is_ashby as _is_ashby
     from backend.scraper.ats.greenhouse import is_greenhouse as _is_greenhouse
     from backend.scraper.ats.rippling import is_rippling as _is_rippling
+    from backend.scraper.ats.smartrecruiters import is_smartrecruiters as _is_smartrecruiters
     from backend.scraper.ats.meta import is_meta as _is_meta_careers
     from backend.scraper.ats.google import is_google as _is_google_careers
     if _is_workday(url):
@@ -49,6 +50,8 @@ def detect_scrape_type(url: str) -> str:
         return "Greenhouse API"
     if _is_rippling(url):
         return "Rippling API"
+    if _is_smartrecruiters(url):
+        return "SmartRecruiters API"
     if _is_meta_careers(url):
         return "Meta Careers (Playwright)"
     if _is_google_careers(url):
@@ -302,6 +305,10 @@ async def test_scrape_company(company_id: str, db: Session = Depends(get_db)):
         is_rippling as _is_rippling,
         scrape as _scrape_rippling,
     )
+    from backend.scraper.ats.smartrecruiters import (
+        is_smartrecruiters as _is_smartrecruiters,
+        scrape as _scrape_smartrecruiters,
+    )
     from backend.scraper.ats.meta import (
         is_meta as _is_meta_careers,
         scrape as _scrape_meta_careers,
@@ -388,6 +395,12 @@ async def test_scrape_company(company_id: str, db: Session = Depends(get_db)):
                     all_jobs.extend(jobs)
                     all_rejected.extend(rejected)
                     urls_scraped.append(f"{target_url[:80]}... ({len(jobs)} found via Rippling API)")
+                    continue
+                if _is_smartrecruiters(target_url):
+                    jobs, rejected = await _scrape_smartrecruiters(target_url, debug=True)
+                    all_jobs.extend(jobs)
+                    all_rejected.extend(rejected)
+                    urls_scraped.append(f"{target_url[:80]}... ({len(jobs)} found via SmartRecruiters API)")
                     continue
                 if _is_meta_careers(target_url):
                     jobs, rejected = await _scrape_meta_careers(target_url, browser=browser, debug=True)

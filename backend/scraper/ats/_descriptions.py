@@ -347,6 +347,49 @@ async def _fetch_description_ats(url: str) -> str | None:
                         return text[:30_000]
         return None
 
+    # ── SmartRecruiters: jobs.smartrecruiters.com/{slug}/{id}[-name] ──
+    # Note: api.smartrecruiters.com is intentionally excluded — JD URLs come from
+    # listing output (jobs.* host), and the api.* path shape is /v1/companies/...
+    # which would not parse with the {slug}/{id} extraction below.
+    if _host_matches(url, "jobs.smartrecruiters.com", "careers.smartrecruiters.com"):
+        path_parts = [p for p in parsed.path.strip("/").split("/") if p]
+        if len(path_parts) >= 2:
+            company_slug = path_parts[0]
+            # Job segment is "{numericId}" or "{numericId}-{slugified-name}".
+            id_segment = path_parts[1].split("-", 1)[0]
+            if id_segment.isdigit():
+                api_url = (
+                    f"https://api.smartrecruiters.com/v1/companies/"
+                    f"{company_slug}/postings/{id_segment}"
+                )
+                try:
+                    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                        resp = await client.get(api_url, headers={"Accept": "application/json"})
+                        if resp.status_code == 200:
+                            data = json.loads(resp.text)
+                            sections = (data.get("jobAd") or {}).get("sections") or {}
+                            parts = []
+                            for key in ("companyDescription", "jobDescription",
+                                        "qualifications", "additionalInformation"):
+                                section = sections.get(key) or {}
+                                html_text = section.get("text") or ""
+                                if html_text:
+                                    soup = BeautifulSoup(html_text, "html.parser")
+                                    text = soup.get_text(separator="\n", strip=True)
+                                    if text:
+                                        parts.append(text)
+                            if parts:
+                                desc = "\n\n".join(parts)
+                                if len(desc) >= 50:
+                                    logger.debug(
+                                        f"SmartRecruiters API description for {url}: "
+                                        f"{len(desc)} chars"
+                                    )
+                                    return desc[:30_000]
+                except Exception as e:
+                    logger.debug(f"SmartRecruiters description failed for {url}: {e}")
+        return None
+
     # ── Greenhouse: boards.greenhouse.io/{company}/jobs/{id} ──
     if _host_matches(url, "greenhouse.io") and "/jobs/" in url:
         path_parts = [p for p in parsed.path.strip("/").split("/") if p]

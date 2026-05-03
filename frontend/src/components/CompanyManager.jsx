@@ -14,6 +14,7 @@ const ATS_TYPES = [
   { id: 'Ashby', color: 'bg-pink-100 text-pink-700 dark:bg-pink-900 dark:text-pink-300' },
   { id: 'Greenhouse', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300' },
   { id: 'Rippling', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300' },
+  { id: 'SmartRecruiters', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300' },
   { id: 'Eightfold', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' },
   { id: 'Apple', color: 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-200' },
   { id: 'Meta', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' },
@@ -31,6 +32,7 @@ const SCRAPE_TYPE_COLORS = Object.fromEntries([
   ['Lever API', ATS_COLOR_MAP.Lever], ['Phenom API', ATS_COLOR_MAP.Phenom],
   ['TalentBrew AJAX', ATS_COLOR_MAP.TalentBrew], ['Ashby API', ATS_COLOR_MAP.Ashby],
   ['Greenhouse API', ATS_COLOR_MAP.Greenhouse], ['Rippling API', ATS_COLOR_MAP.Rippling],
+  ['SmartRecruiters API', ATS_COLOR_MAP.SmartRecruiters],
   ['Meta Careers (Playwright)', ATS_COLOR_MAP.Meta], ['Google Careers (Playwright)', ATS_COLOR_MAP.Google],
   ['Generic (Playwright)', ATS_COLOR_MAP.Generic],
 ])
@@ -63,6 +65,7 @@ function detectAtsType(url) {
   if (hostMatches(url, 'jobs.ashbyhq.com')) return 'Ashby'
   if (hostMatches(url, 'greenhouse.io')) return 'Greenhouse'
   if (hostMatches(url, 'ats.rippling.com') || (hostMatches(url, 'rippling.com') && pathContains(url, '/careers'))) return 'Rippling'
+  if (hostMatches(url, 'jobs.smartrecruiters.com', 'careers.smartrecruiters.com', 'api.smartrecruiters.com')) return 'SmartRecruiters'
   if (hostMatches(url, 'eightfold.ai', 'apply.careers.microsoft.com')) return 'Eightfold'
   if (hostMatches(url, 'jobs.apple.com')) return 'Apple'
   if (hostMatches(url, 'metacareers.com')) return 'Meta'
@@ -97,7 +100,7 @@ function UrlListEditor({ urls, onChange }) {
       {urls.map((item, i) => (
         <div key={i} className="flex items-center gap-1.5">
           <select value={item.atsType || 'Generic'} onChange={e => handleAtsChange(i, e.target.value)}
-            className={`text-[10px] px-1.5 py-1.5 rounded border-0 font-medium cursor-pointer flex-shrink-0 w-[85px] ${ATS_COLOR_MAP[item.atsType] || ATS_COLOR_MAP.Generic}`}>
+            className={`text-[10px] px-1.5 py-1.5 rounded border-0 font-medium cursor-pointer flex-shrink-0 w-[100px] ${ATS_COLOR_MAP[item.atsType] || ATS_COLOR_MAP.Generic}`}>
             {ATS_TYPES.map(t => <option key={t.id} value={t.id}>{t.id}</option>)}
           </select>
           <input type="text" value={item.url} onChange={e => handleUrlChange(i, e.target.value)}
@@ -819,7 +822,7 @@ export default function CompanyManager() {
                         return (
                           <div key={i} className="flex items-center gap-1 mb-0.5 min-w-0">
                             {scrapeType && (
-                              <span className={`text-[10px] px-1 py-0.5 rounded whitespace-nowrap flex-shrink-0 w-[70px] text-center ${SCRAPE_TYPE_COLORS[scrapeType] || 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'}`}>
+                              <span className={`text-[10px] px-1 py-0.5 rounded whitespace-nowrap flex-shrink-0 w-[80px] text-center ${SCRAPE_TYPE_COLORS[scrapeType] || 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'}`}>
                                 {scrapeType.replace(' (Playwright)', '').replace(' API', '').replace(' AJAX', '').replace(' Careers', '')}
                               </span>
                             )}
