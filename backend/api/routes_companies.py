@@ -317,6 +317,11 @@ async def test_scrape_company(company_id: str, db: Session = Depends(get_db)):
 
     include_expr = company.title_include_expr
     exclude_kws = [kw.lower() for kw in (company.title_exclude_keywords or [])]
+    # Mirror the live scraper: global title_exclude_global is applied at INSERT time
+    # (see scraper/sources/company_pages.py:_apply_company_filters call), so the test
+    # endpoint should report what would actually save — not just per-company filters.
+    from backend.models.db import get_global_title_exclude
+    global_exclude_kws = [kw.lower() for kw in (get_global_title_exclude(db) or [])]
 
     all_jobs = []
     urls_scraped = []
@@ -418,12 +423,19 @@ async def test_scrape_company(company_id: str, db: Session = Depends(get_db)):
                 if page:
                     await _close_page(page)
 
-        # Classify valid jobs with keyword filter reasons
+        # Classify valid jobs with keyword filter reasons.
+        # Two filter layers run in production:
+        #   1. Per-company:  title_exclude_keywords + title_include_expr
+        #   2. Global:       title_exclude_global setting (applied at INSERT time)
+        # Both are reported here so the test result matches what would actually save.
         results = []
-        kept_count = 0
+        after_company_count = 0  # passes per-company only
+        would_save_count = 0     # passes both per-company and global
         for j in all_jobs:
             title_lower = j["title"].lower()
+            title_orig = j["title"]
             reason = None
+            global_excluded_by = []
 
             matched_exclude = [kw for kw in exclude_kws if re.search(r'\b' + re.escape(kw) + r'\b', title_lower)]
             if matched_exclude:
@@ -432,15 +444,28 @@ async def test_scrape_company(company_id: str, db: Session = Depends(get_db)):
                     if not match_title_expr(include_expr, j["title"]):
                         reason = f"No match for: {include_expr}"
 
-            kept = reason is None
-            if kept:
-                kept_count += 1
+            passes_company = reason is None
+            if passes_company:
+                after_company_count += 1
+                # Run global title-exclude on the same title (case-insensitive word boundary)
+                global_excluded_by = [
+                    kw for kw in global_exclude_kws
+                    if re.search(r'\b' + re.escape(kw) + r'\b', title_orig, re.IGNORECASE)
+                ]
+                if global_excluded_by:
+                    reason = f"[Global] Excluded by: {', '.join(global_excluded_by)}"
+                else:
+                    would_save_count += 1
+
+            kept = reason is None  # would actually save (passes both filters)
 
             results.append({
                 "title": j["title"],
                 "url": j["url"],
                 "kept": kept,
                 "reason": reason,
+                "passes_company_filter": passes_company,
+                "global_excluded_by": global_excluded_by,
             })
 
         # Append rejected entries at the end so user can see what was dropped
@@ -459,9 +484,11 @@ async def test_scrape_company(company_id: str, db: Session = Depends(get_db)):
             "pagination_debug": all_pagination_debug,
             "include_expr": include_expr,
             "exclude_keywords": exclude_kws,
+            "global_exclude_keyword_count": len(global_exclude_kws),
             "total_found": len(all_jobs),
             "total_rejected": len(all_rejected),
-            "after_filter": kept_count,
+            "after_company_filter": after_company_count,  # passes per-company only
+            "after_filter": would_save_count,             # passes both — what'd actually save
             "jobs": results,
         }
     except Exception as e:
