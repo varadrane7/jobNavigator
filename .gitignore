@@ -136,7 +136,7 @@ backend/gmail_token.json
 backend/gmail_credentials.json
 backend/.linkedin_api/
 
-# Personal Garamond templates (licensed Monotype fonts — kept local only)
+# Garamond templates — licensed fonts, kept local only
 backend/resume_templates/garamond/
 backend/cover_letter_templates/garamond/
 *.TTF
