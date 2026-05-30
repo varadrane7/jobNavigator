@@ -25,10 +25,7 @@ const RIGHT_SECTIONS = [
     usedBy: ['Autofill (work model / relocation fields)', 'Future: filter scraped jobs'] },
   { key: 'qa_bank', label: 'Q&A Bank', kind: 'array',
     hint: 'Reusable answers to free-text application questions ("Why this company?", "Comp expectations")',
-    usedBy: ['Autofill (free-text screener questions)', 'Cover letter (custom prompts / motivations)'] },
-  { key: 'writing_samples', label: 'Writing Samples', kind: 'array',
-    hint: 'Voice anchors — short paragraphs the cover letter generator uses for tone',
-    usedBy: ['Cover letter (voice / tone anchors)'] },
+    usedBy: ['Autofill (free-text screener questions)'] },
 ]
 
 export default function Persona() {
@@ -191,8 +188,8 @@ function NodeEditor({ section, value, onSave, onSaveDebounced }) {
       </div>
     )
   }
-  // array — kept as JSON textarea (qa_bank, writing_samples are free-form lists
-  // of objects whose shape varies per entry). Saves on blur so we don't try to
+  // array — kept as JSON textarea (qa_bank is a free-form list of objects whose
+  // shape varies per entry). Saves on blur so we don't try to
   // parse mid-typed JSON; the parent treats this the same as the object editor
   // for the user-facing "Saves automatically" label.
   return (

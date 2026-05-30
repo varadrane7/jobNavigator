@@ -599,6 +599,107 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      {/* Cover Letters */}
+      <section className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg p-4 mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <h2 className="font-semibold text-lg dark:text-gray-100">Cover Letters</h2>
+          <div className="relative group">
+            <Info size={15} className="text-gray-400 dark:text-gray-500 cursor-help" />
+            <div className="hidden group-hover:block absolute left-6 top-0 z-50 w-80 p-3 text-xs bg-gray-900 text-gray-100 rounded-lg shadow-lg leading-relaxed">
+              <p className="font-semibold mb-1.5">Cover Letters</p>
+              <p className="mb-1">Generated from the paired resume + persona preferences + job description. Voice presets are injected into the prompt; switching voice/length reuses the cached resume prefix (cheap to regenerate).</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Provider</label>
+            <select value={settings.cover_letter_llm_provider || ''}
+              onChange={e => { setSettings(p => ({...p, cover_letter_llm_provider: e.target.value})); saveSetting('cover_letter_llm_provider', e.target.value) }}
+              className="border rounded px-2 py-1.5 text-sm w-full dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600">
+              <option value="">Use Primary</option>
+              <option value="claude_api">Claude API (Anthropic)</option>
+              <option value="claude_code">Claude Code (Subscription)</option>
+              <option value="openai">OpenAI</option>
+              <option value="ollama">Ollama (Local)</option>
+              <option value="openai_compat">OpenAI Compatible</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Model</label>
+            {(() => {
+              const models = Array.isArray(settings.llm_models_list) ? settings.llm_models_list : []
+              const provider = settings.cover_letter_llm_provider || settings.llm_provider || 'claude_api'
+              const filtered = models.filter(m => m.provider === provider)
+              const currentModel = settings.cover_letter_llm_model || ''
+              const currentInList = filtered.some(m => m.model === currentModel)
+              return (
+                <select value={currentModel}
+                  onChange={e => { setSettings(p => ({...p, cover_letter_llm_model: e.target.value})); saveSetting('cover_letter_llm_model', e.target.value) }}
+                  className="border rounded px-2 py-1.5 text-sm w-full dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600">
+                  <option value="">Use Primary</option>
+                  {!currentInList && currentModel && <option value={currentModel}>Custom: {currentModel}</option>}
+                  {filtered.map(m => <option key={m.model} value={m.model}>{m.label || m.model}</option>)}
+                </select>
+              )
+            })()}
+          </div>
+        </div>
+
+        {settings.cover_letter_llm_provider && !['claude_code', 'ollama', ''].includes(settings.cover_letter_llm_provider) && (
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">API Key</label>
+            <div className="relative">
+              <input type={showPw.cover_letter_llm_api_key ? 'text' : 'password'} autoComplete="off" value={settings.cover_letter_llm_api_key || ''}
+                onChange={e => setSettings(p => ({...p, cover_letter_llm_api_key: e.target.value}))}
+                onBlur={e => saveSetting('cover_letter_llm_api_key', e.target.value)}
+                className="w-full border rounded px-3 py-2 pr-9 text-sm dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600" />
+              <button type="button" onClick={() => togglePw('cover_letter_llm_api_key')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                {showPw.cover_letter_llm_api_key ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="mb-4">
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Default Voice</label>
+          <input
+            className="w-full border rounded px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600"
+            defaultValue={settings.cover_letter_default_voice || ''}
+            onBlur={e => saveSetting('cover_letter_default_voice', e.target.value)}
+            placeholder="professional"
+          />
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Must match an <code>id</code> in the voice presets below.</p>
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Voice Presets (JSON)</label>
+          <textarea
+            className="w-full border rounded px-3 py-2 text-sm font-mono dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600"
+            rows={8}
+            defaultValue={typeof settings.cover_letter_voice_presets === 'string' ? settings.cover_letter_voice_presets : JSON.stringify(settings.cover_letter_voice_presets || [], null, 2)}
+            onBlur={e => { try { saveSetting('cover_letter_voice_presets', JSON.parse(e.target.value)) } catch { alert('Voice presets must be valid JSON') } }}
+            placeholder='[{"id":"professional","label":"Professional & direct","instruction":"..."}]'
+          />
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">List of <code>{'{id, label, instruction}'}</code>. The selected preset's instruction is injected into the generation prompt suffix.</p>
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Cover Letter Prompt</label>
+          <textarea
+            className="w-full border rounded px-3 py-2 text-sm font-mono dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600"
+            rows={10}
+            defaultValue={settings.cover_letter_prompt || ''}
+            onBlur={e => saveSetting('cover_letter_prompt', e.target.value)}
+            placeholder="Cover letter generation prompt template..."
+          />
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+            Placeholders: {'{voice_instruction}'}, {'{length_instruction}'}, {'{job_description}'}. The resume + persona preferences are sent as a cached prefix automatically.
+          </p>
+        </div>
+      </section>
+
       {/* Email Classification */}
       <section className="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg p-4 mb-6">
         <div className="flex items-center gap-2 mb-3">

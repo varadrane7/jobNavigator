@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import api from '../api'
-import { ExternalLink, Bookmark, X, CheckCircle, ChevronDown, ChevronUp, Filter, Ban, Info, FileText, Loader2, ScrollText, RotateCw } from 'lucide-react'
+import { ExternalLink, Bookmark, X, CheckCircle, ChevronDown, ChevronUp, Filter, Ban, Info, FileText, Loader2, ScrollText, RotateCw, Mail } from 'lucide-react'
 
 const STORAGE_KEY = 'jobfeed_filters'
 
@@ -57,6 +57,7 @@ const timeAgo = (dateStr) => {
 
 export default function JobFeed() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [jobs, setJobs] = useState([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -1009,6 +1010,10 @@ export default function JobFeed() {
                   }}
                   className="flex items-center gap-1 px-2 py-1 text-xs text-purple-600 hover:bg-purple-50 rounded dark:text-purple-400 dark:hover:bg-purple-900/30">
                   <FileText size={12} /> Copy CV
+                </button>
+                <button onClick={() => navigate(`/cover-letters?job=${selectedJob.id}`)}
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50 rounded dark:text-indigo-400 dark:hover:bg-indigo-900/30">
+                  <Mail size={12} /> Cover Letter
                 </button>
               {selectedJob.url && (
                 <a href={selectedJob.url} target="_blank" rel="noopener noreferrer"

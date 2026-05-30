@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import api from '../api'
-import { Plus, Trash2, X, ChevronDown, ChevronRight, ChevronUp, Download, Upload, Loader2, Wand2, ArrowUp, ArrowDown, ExternalLink, Briefcase, CheckCircle2 } from 'lucide-react'
+import { Plus, Trash2, X, ChevronDown, ChevronRight, ChevronUp, Download, Upload, Loader2, Wand2, ArrowUp, ArrowDown, ExternalLink, Briefcase, CheckCircle2, Mail } from 'lucide-react'
 import { diffWords } from 'diff'
 
 function InlineDiff({ oldText, newText }) {
@@ -798,6 +798,12 @@ export default function ResumeBuilder() {
           <a href={pdfDownloadUrl} target="_blank" rel="noopener noreferrer"
             className="bg-blue-600 text-white px-2.5 py-1.5 rounded text-sm hover:bg-blue-700 flex items-center gap-1 flex-shrink-0">
             <Download size={14} /> Download PDF
+          </a>
+        )}
+        {jobId && selectedId && (
+          <a href={`/cover-letters?resume=${selectedId}&job=${jobId}`}
+            className="bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-2.5 py-1.5 rounded text-sm hover:bg-indigo-200 dark:hover:bg-indigo-900/60 flex items-center gap-1 flex-shrink-0">
+            <Mail size={14} /> Cover Letter
           </a>
         )}
         {jobId && (
