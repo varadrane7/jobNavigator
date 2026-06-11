@@ -1124,7 +1124,7 @@ async def llm_costs(days: int = 7):
 @app.get("/api/stats", tags=["stats"], summary="Dashboard statistics")
 def get_stats():
     """Aggregate counts: total jobs, new jobs, saved jobs, total applications,
-    application status breakdown, and response rate percentage.
+    and application status breakdown.
     """
     from backend.models.db import Job, Application
     from sqlalchemy import func
@@ -1145,12 +1145,6 @@ def get_stats():
             "saved_jobs": saved_jobs,
             "total_applications": total_apps,
             "application_statuses": status_counts,
-            "response_rate": (
-                round((status_counts.get("interview", 0) +
-                       status_counts.get("offer", 0) +
-                       status_counts.get("rejected", 0)) /
-                      total_apps * 100, 1) if total_apps > 0 else 0
-            ),
         }
     finally:
         db.close()
