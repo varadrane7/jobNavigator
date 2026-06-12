@@ -443,8 +443,11 @@ async def scrape_career_pages(force: bool = False):
             await asyncio.sleep(2)
 
         if sweep_needed:
-            from backend.analyzer.cv_scorer import analyze_unscored_jobs
-            await analyze_unscored_jobs(status="new")
+            try:
+                from backend.analyzer.cv_scorer import analyze_unscored_jobs
+                await analyze_unscored_jobs(status="new")
+            except Exception as e:
+                logger.exception(f"Post-batch scoring sweep failed (scrape results are saved): {e}")
 
     finally:
         if shared_browser:

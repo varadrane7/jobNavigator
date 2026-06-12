@@ -334,8 +334,24 @@ async def _score_job_inner(job: Job, cv_texts: dict, db=None, depth="light", pre
             cleaned = match.group(0)
         result = json.loads(cleaned)
 
+        # Validate the shape before returning success. A confused model can emit
+        # {"scores": null} or a non-dict — .get("scores", {}) does NOT catch an
+        # explicit null (the default only applies when the key is absent), and
+        # callers do scores.values(). Treat malformed output as a transient
+        # failure (return None) so the job is retried next pass instead of
+        # crashing the whole analyze/scrape run.
+        if not isinstance(result.get("scores"), dict) or not result["scores"]:
+            call_success = False
+            call_error = "malformed LLM response: 'scores' missing, null, or not a dict"
+            logger.warning(
+                f"Job {job.id}: {call_error} — raw head: {text[:200]!r}"
+            )
+            result = None
+
         # For full depth, extract scoring_report fields
-        if depth == "full":
+        if result is None:
+            pass  # fall through with return_value = None (transient failure)
+        elif depth == "full":
             report = {}
             for key in ["summary", "requirement_mapping", "keyword_coverage_pct",
                          "matched_keywords", "missing_keywords", "hard_blockers", "ats_tip"]:
@@ -510,7 +526,17 @@ async def analyze_unscored_jobs(status: str = "saved"):
                     total_scored += 1
                     continue
                 if result:
-                    scores = result.get("scores", {})
+                    # Belt-and-braces: _score_job_inner validates this, but a
+                    # null/non-dict scores here must degrade to a per-job retry,
+                    # never crash the batch (and with it the whole scrape run).
+                    scores = result.get("scores")
+                    if not isinstance(scores, dict):
+                        logger.warning(
+                            f"Job {job.id} ({job.company} - {job.title}): result has "
+                            f"invalid scores ({type(scores).__name__}) — skipping, will retry"
+                        )
+                        total_scored += 1
+                        continue
                     job.cv_scores = scores
                     # Precompute max score for fast DB filtering (Task 2)
                     try:
@@ -649,7 +675,11 @@ async def score_single_job(job_id: str, cv_ids: list = None, depth: str = "full"
         if not job:
             return
 
-        new_scores = result.get("scores", {})
+        # Defensive: .get's default doesn't catch an explicit "scores": null.
+        new_scores = result.get("scores")
+        if not isinstance(new_scores, dict):
+            logger.warning(f"Job {job_id}: rescore result has invalid scores — not persisting")
+            return
         merged = dict(job.cv_scores or {})
         merged.update(new_scores)
         job.cv_scores = merged

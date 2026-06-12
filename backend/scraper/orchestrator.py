@@ -202,8 +202,13 @@ async def run_all(force: bool = False):
                 search_sweep_needed = True
 
         if search_sweep_needed:
-            from backend.analyzer.cv_scorer import analyze_unscored_jobs
-            await analyze_unscored_jobs(status="new")
+            # Contained: a scoring failure must not abort the rest of scrape_all
+            # (career-page scrapes below would never run).
+            try:
+                from backend.analyzer.cv_scorer import analyze_unscored_jobs
+                await analyze_unscored_jobs(status="new")
+            except Exception as e:
+                logger.exception(f"Post-search scoring sweep failed (scrape continues): {e}")
 
         # Also run Playwright career page scrapes
         from backend.scraper.sources.company_pages import scrape_career_pages
