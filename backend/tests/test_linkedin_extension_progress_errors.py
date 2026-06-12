@@ -62,7 +62,6 @@ async def test_progress_records_analysis_error(monkeypatch):
     # Neutralize get_existing_external_ids/build_company_lookup/find_company_by_name
     monkeypatch.setattr(ext, "get_existing_external_ids", lambda db: set())
     monkeypatch.setattr(ext, "build_company_lookup", lambda db: {})
-    monkeypatch.setattr(ext, "find_company_by_name", lambda db, name: None)
     # Neutralize get_global_title_exclude (imported lazily inside enrich)
     monkeypatch.setattr(
         "backend.models.db.get_global_title_exclude", lambda db: [], raising=False

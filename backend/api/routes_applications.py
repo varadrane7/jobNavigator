@@ -259,7 +259,7 @@ def create_application(
             background_tasks.add_task(fetch_h1b_for_company_id, str(new_co.id))
 
     # Cache job page in background if not already cached
-    if data.url and not job.cached_page_html:
+    if data.url and not job.has_cached_page:
         background_tasks.add_task(_cache_job_page, str(job.id), data.url)
 
     return {

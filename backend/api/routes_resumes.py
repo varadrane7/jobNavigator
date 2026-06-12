@@ -1,4 +1,5 @@
 """Resume builder CRUD, preview, PDF export, and PDF import endpoints."""
+import functools as _functools
 import io
 import json
 import logging
@@ -226,6 +227,26 @@ def _discover_templates() -> list[dict]:
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
+@_functools.lru_cache(maxsize=32)
+def _load_template_fonts(fonts_dir_str: str) -> dict:
+    """Read + base64-encode a template's fonts once per process.
+
+    Fonts never change at runtime (~0.75 MB raw per serif template), but this was
+    being re-read and re-encoded on every PDF preview/render. Keyed by directory
+    path string so the resume and cover-letter template trees share the cache.
+    """
+    import base64
+    from pathlib import Path as _Path
+    fonts = {}
+    fonts_dir = _Path(fonts_dir_str)
+    if fonts_dir.exists():
+        for pattern in ("*.TTF", "*.ttf"):
+            for font_file in fonts_dir.glob(pattern):
+                with open(font_file, "rb") as f:
+                    fonts[font_file.name] = "data:font/truetype;base64," + base64.b64encode(f.read()).decode()
+    return fonts
+
+
 def _render_html(json_data: dict, template_name: str, page_format: str) -> str:
     """Render a resume to HTML using its Jinja2 template."""
     from jinja2 import Environment, FileSystemLoader
@@ -241,16 +262,7 @@ def _render_html(json_data: dict, template_name: str, page_format: str) -> str:
     template = env.get_template("template.html.j2")
 
     # Embed fonts as base64 data URIs (file:// blocked by Chromium in set_content)
-    import base64
-    fonts_dir = template_dir / "fonts"
-    fonts = {}
-    if fonts_dir.exists():
-        for font_file in fonts_dir.glob("*.TTF"):
-            with open(font_file, "rb") as f:
-                fonts[font_file.name] = "data:font/truetype;base64," + base64.b64encode(f.read()).decode()
-        for font_file in fonts_dir.glob("*.ttf"):
-            with open(font_file, "rb") as f:
-                fonts[font_file.name] = "data:font/truetype;base64," + base64.b64encode(f.read()).decode()
+    fonts = _load_template_fonts(str(template_dir / "fonts"))
 
     html = template.render(
         **json_data,

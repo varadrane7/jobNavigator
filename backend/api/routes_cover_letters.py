@@ -55,10 +55,11 @@ def _default_template_id() -> str:
 
 def _render_html(json_data: dict, template_name: str, page_format: str) -> str:
     """Render a cover letter to HTML via its Jinja2 template (fonts base64-embedded)."""
-    import base64
     import re as _re
     from jinja2 import Environment, FileSystemLoader
     from markupsafe import Markup
+
+    from backend.api.routes_resumes import _load_template_fonts
 
     template_dir = TEMPLATES_DIR / template_name
     if not template_dir.exists():
@@ -71,13 +72,7 @@ def _render_html(json_data: dict, template_name: str, page_format: str) -> str:
     )
     template = env.get_template("template.html.j2")
 
-    fonts = {}
-    fonts_dir = template_dir / "fonts"
-    if fonts_dir.exists():
-        for pattern in ("*.TTF", "*.ttf"):
-            for font_file in fonts_dir.glob(pattern):
-                with open(font_file, "rb") as f:
-                    fonts[font_file.name] = "data:font/truetype;base64," + base64.b64encode(f.read()).decode()
+    fonts = _load_template_fonts(str(template_dir / "fonts"))
 
     return template.render(**json_data, page_format=page_format, fonts=fonts)
 

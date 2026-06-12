@@ -18,7 +18,7 @@ import logging
 
 from backend.models.db import (
     SessionLocal, Job,
-    build_company_lookup, get_existing_external_ids, find_company_by_name,
+    build_company_lookup, get_existing_external_ids,
 )
 from backend.scraper._shared.dedup import make_external_id, make_content_hash
 from backend.analyzer.salary_extractor import apply_salary_to_job
@@ -86,6 +86,11 @@ async def enrich(linkedin_ids: list[str], db=None):
 
         existing_ext_ids = get_existing_external_ids(db)
         company_lookup = build_company_lookup(db)
+        # Per-import hoists — previously re-read per job inside the loop
+        from backend.models.db import get_global_title_exclude
+        from backend.analyzer.h1b_checker import load_exclusion_phrases
+        _global_te = get_global_title_exclude(db)
+        _phrases = load_exclusion_phrases(db)
         imported = 0
         skipped = pre_skipped
 
@@ -122,9 +127,7 @@ async def enrich(linkedin_ids: list[str], db=None):
                         logger.info(f"LinkedIn {lid}: title '{title}' doesn't match include filter, skipping")
                         skipped += 1
                         continue
-                    # Title exclude filter (merge global)
-                    from backend.models.db import get_global_title_exclude
-                    _global_te = get_global_title_exclude(db)
+                    # Title exclude filter (merge global — hoisted above loop)
                     exclude_kw = list(set((ext_search.title_exclude_keywords or []) + _global_te))
                     if exclude_kw:
                         pattern = "|".join(r'\b' + re.escape(kw) + r'\b' for kw in exclude_kw)
@@ -181,13 +184,13 @@ async def enrich(linkedin_ids: list[str], db=None):
                 )
 
                 # Salary extraction from description
-                comp_obj = find_company_by_name(db, company) or company_lookup.get(company.lower().strip())
+                comp_obj = company_lookup.get(company.lower().strip())
                 h1b_median = comp_obj.h1b_median_salary if comp_obj else None
                 apply_salary_to_job(job, h1b_median)
 
                 # H-1B + language check
                 try:
-                    await check_job_h1b(job, db)
+                    await check_job_h1b(job, db, company_lookup=company_lookup, phrases=_phrases)
                     job.h1b_verdict = determine_h1b_verdict(
                         job.h1b_company_lca_count, job.h1b_jd_flag
                     )

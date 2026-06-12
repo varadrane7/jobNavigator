@@ -145,6 +145,7 @@ async def run_all(force: bool = False):
         proxy_url = _get_setting_value(db, "proxy_url", "") or None
 
         logger.info(f"Running {len(searches)} active searches")
+        search_sweep_needed = False
 
         for search in searches:
             # Passive-only modes (extension push endpoints) are not scheduler-driven —
@@ -195,10 +196,14 @@ async def run_all(force: bool = False):
                 f"new={result.get('new_jobs', 0)}, duration={result.get('duration', 0):.1f}s"
             )
 
-            # Auto CV-score if search has auto_scoring_depth enabled
+            # Auto CV-score: mark for one pool sweep after all searches (the
+            # sweep is a common pool — per-search invocations re-walked it N times).
             if search.auto_scoring_depth in ("light", "full") and result.get("new_jobs", 0) > 0:
-                from backend.analyzer.cv_scorer import analyze_unscored_jobs
-                await analyze_unscored_jobs(status="new")
+                search_sweep_needed = True
+
+        if search_sweep_needed:
+            from backend.analyzer.cv_scorer import analyze_unscored_jobs
+            await analyze_unscored_jobs(status="new")
 
         # Also run Playwright career page scrapes
         from backend.scraper.sources.company_pages import scrape_career_pages

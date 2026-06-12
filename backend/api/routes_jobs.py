@@ -505,7 +505,7 @@ def update_job(job_id: str, updates: dict, background_tasks: BackgroundTasks, db
 
     # Auto-cache page and create Application when status changes to applied
     if updates.get("status") == "applied":
-        if job.url and not job.cached_page_html:
+        if job.url and not job.has_cached_page:
             from backend.api.routes_applications import _cache_job_page
             background_tasks.add_task(_cache_job_page, str(job.id), job.url)
 
@@ -638,7 +638,7 @@ def _job_to_dict(j: Job, tailored_resume_id=None, in_flight: list[str] | None = 
         "best_cv": j.best_cv,
         "scoring_report": _normalize_report(j.scoring_report, j.best_cv),
         "best_score": best_score,
-        "has_cached_page": bool(j.cached_page_html),
+        "has_cached_page": bool(j.has_cached_page),
         "page_cached_at": j.page_cached_at.isoformat() if j.page_cached_at else None,
         "seen": j.seen,
         "saved": j.saved,

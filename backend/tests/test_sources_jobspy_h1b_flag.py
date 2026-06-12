@@ -23,7 +23,7 @@ def test_apply_h1b_inline_sets_flag_on_match(monkeypatch):
     from backend.scraper.sources import jobspy as jobspy_src
 
     # Stub the async scan to set the flag
-    async def fake_async_scan(job, db=None):
+    async def fake_async_scan(job, db=None, **kwargs):
         job.h1b_jd_flag = True
         job.h1b_jd_snippet = "no visa sponsorship"
 
@@ -52,7 +52,7 @@ def test_apply_h1b_inline_tolerates_exception(monkeypatch):
     """When the async scan raises, the helper logs and doesn't propagate."""
     from backend.scraper.sources import jobspy as jobspy_src
 
-    async def broken_async_scan(job, db=None):
+    async def broken_async_scan(job, db=None, **kwargs):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(

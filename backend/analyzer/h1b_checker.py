@@ -189,15 +189,36 @@ def determine_h1b_verdict(lca_count: int, jd_flag: bool) -> str:
     return "unknown"
 
 
-async def check_job_h1b(job: Job, db) -> None:
+def load_exclusion_phrases(db) -> list:
+    """Read + parse the body_exclusion_phrases setting once. Batch callers should
+    call this before their job loop and pass the result into check_job_h1b —
+    re-reading/parsing it per job costs a query + json.loads thousands of times
+    per scrape for an identical 46-phrase list."""
+    exclusion_setting = db.query(Setting).filter(Setting.key == "body_exclusion_phrases").first()
+    if exclusion_setting:
+        try:
+            return json.loads(exclusion_setting.value)
+        except json.JSONDecodeError:
+            pass
+    return []
+
+
+async def check_job_h1b(job: Job, db, company_lookup: dict = None, phrases: list = None) -> None:
     """Run H-1B checks on a single job and update its fields.
 
     Company H-1B data is cached on the Company record and reused for 90 days.
     Live MyVisaJobs lookups only happen during the dedicated h1b_cron refresh.
     Per-job: only the body exclusion scan runs (no HTTP calls).
+
+    Batch callers: pass `company_lookup` (from build_company_lookup) and
+    `phrases` (from load_exclusion_phrases) to avoid a full Companies scan and
+    a Settings read + JSON parse per job.
     """
-    from backend.models.db import find_company_by_name
-    company = find_company_by_name(db, job.company or "")
+    if company_lookup is not None:
+        company = company_lookup.get((job.company or "").strip().lower())
+    else:
+        from backend.models.db import find_company_by_name
+        company = find_company_by_name(db, job.company or "")
     lca_count = 0
     approval_rate = 0.0
 
@@ -210,13 +231,8 @@ async def check_job_h1b(job: Job, db) -> None:
     # No Company record = no H-1B data (skip live lookup — too slow for inline use)
 
     # Layer 2: JD body scan
-    exclusion_setting = db.query(Setting).filter(Setting.key == "body_exclusion_phrases").first()
-    phrases = []
-    if exclusion_setting:
-        try:
-            phrases = json.loads(exclusion_setting.value)
-        except json.JSONDecodeError:
-            phrases = []
+    if phrases is None:
+        phrases = load_exclusion_phrases(db)
 
     jd_result = scan_jd_for_h1b_flags(job.description or "", phrases)
     job.h1b_jd_flag = jd_result["jd_flag"]

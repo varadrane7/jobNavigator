@@ -19,22 +19,28 @@ from backend.scraper._shared.dedup import make_external_id, make_content_hash
 logger = logging.getLogger("jobnavigator.scraper.sources.jobspy")
 
 
-def _apply_h1b_inline(job, db=None) -> None:
+def _apply_h1b_inline(job, db=None, company_lookup=None, phrases=None, loop=None) -> None:
     """Sync-safe H-1B JD scan.
 
-    Runs the async check_job_h1b inside a fresh event loop so this is safe to call
+    Runs the async check_job_h1b inside an event loop so this is safe to call
     from inside asyncio.to_thread() workers (which are sync contexts that may or may not
     have an event loop attached depending on Python config).
+
+    Batch callers should pass a shared `loop` (one per run, not one per job) plus
+    `company_lookup`/`phrases` so per-job DB lookups are skipped.
     """
     import asyncio as _asyncio
     from backend.analyzer.h1b_checker import check_job_h1b
 
     try:
-        loop = _asyncio.new_event_loop()
+        own_loop = loop is None
+        if own_loop:
+            loop = _asyncio.new_event_loop()
         try:
-            loop.run_until_complete(check_job_h1b(job, db=db))
+            loop.run_until_complete(check_job_h1b(job, db=db, company_lookup=company_lookup, phrases=phrases))
         finally:
-            loop.close()
+            if own_loop:
+                loop.close()
     except Exception as e:
         logger.warning(f"_apply_h1b_inline failed for job {getattr(job, 'id', '?')}: {e}")
 
@@ -151,8 +157,17 @@ def _run_sync(search, proxy_url: str = None) -> dict:
         # Save to DB, dedup via external_id
         db = SessionLocal()
         new_jobs = 0
+        # Per-run hoists: one event loop, one company lookup, one parsed phrase
+        # list — previously rebuilt per job (fresh loop + full company scan +
+        # Settings read/JSON-parse, thousands of times per scrape).
+        import asyncio as _asyncio
+        from backend.models.db import build_company_lookup
+        from backend.analyzer.h1b_checker import load_exclusion_phrases
+        h1b_loop = _asyncio.new_event_loop()
         try:
             existing_ids = get_existing_external_ids(db)
+            company_lookup = build_company_lookup(db)
+            phrases = load_exclusion_phrases(db)
 
             for _, row in jobs_df.iterrows():
                 company = str(row.get("company", "")) or ""
@@ -209,12 +224,11 @@ def _run_sync(search, proxy_url: str = None) -> dict:
                         pass
 
                 # Run H-1B check + language check + salary extraction inline.
-                # _apply_h1b_inline uses a fresh event loop so it's safe in asyncio.to_thread workers.
-                _apply_h1b_inline(job, db)
+                # Shared loop + prebuilt lookup/phrases — hoisted above the loop.
+                _apply_h1b_inline(job, db, company_lookup=company_lookup, phrases=phrases, loop=h1b_loop)
                 try:
                     from backend.analyzer.salary_extractor import apply_salary_to_job
-                    from backend.models.db import find_company_by_name
-                    company_obj = find_company_by_name(db, company)
+                    company_obj = company_lookup.get(company.strip().lower())
                     h1b_median = company_obj.h1b_median_salary if company_obj else None
                     apply_salary_to_job(job, h1b_median)
                 except Exception as analysis_err:
@@ -286,6 +300,7 @@ def _run_sync(search, proxy_url: str = None) -> dict:
                 db.commit()
 
         finally:
+            h1b_loop.close()
             db.close()
 
         duration = time.time() - start_time

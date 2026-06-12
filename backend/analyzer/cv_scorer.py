@@ -421,6 +421,12 @@ async def analyze_unscored_jobs(status: str = "saved"):
 
             auto_score_filter = or_(*conditions)
 
+        # Per-run constants — hoisted out of the per-job loop (were re-queried per job)
+        default_depth_row = db.query(Setting).filter(Setting.key == "scoring_default_depth").first()
+        default_depth = default_depth_row.value if default_depth_row and default_depth_row.value else "light"
+        threshold_row = db.query(Setting).filter(Setting.key == "fit_score_threshold").first()
+        alert_threshold = int(threshold_row.value) if threshold_row else 60
+
         while True:
             q = db.query(Job).filter(
                 (Job.cv_scores == None) | (Job.cv_scores == text("'{}'::jsonb")),
@@ -439,16 +445,15 @@ async def analyze_unscored_jobs(status: str = "saved"):
 
             logger.info(f"Analyzing batch of {len(unscored)} unscored jobs (total so far: {total_scored})")
 
+            # ── Phase 1 (sequential, shared session): resolve CV set, depth, and job
+            # text per job; persist _skipped sentinels for jobs with no text.
+            to_score = []  # (job, cv_texts, depth, preloaded_text)
             for job in unscored:
                 # Look up company to get per-company CV selection
                 company = _find_company_for_job(db, job)
                 cv_texts = _get_resume_texts_for_company(db, company) if company else default_cv_texts
 
                 # Determine depth based on auto_scoring_depth
-                depth = "light"
-                default_depth_row = db.query(Setting).filter(Setting.key == "scoring_default_depth").first()
-                default_depth = default_depth_row.value if default_depth_row and default_depth_row.value else "light"
-
                 if status == "saved":
                     depth = "full"  # Saved jobs always get full report
                 elif company and company.auto_scoring_depth in ("light", "full"):
@@ -477,19 +482,33 @@ async def analyze_unscored_jobs(status: str = "saved"):
                     # Mark with sentinel so it won't match the unscored filter again.
                     # (LLM was not called — this is a true skip, not a transient failure.)
                     job.cv_scores = {"_skipped": "no_text_available"}
-                    try:
-                        _scores = job.cv_scores or {}
-                        _numeric = [float(v) for v in _scores.values() if isinstance(v, (int, float))]
-                        job.best_cv_score = max(_numeric) if _numeric else None
-                    except (ValueError, TypeError):
-                        job.best_cv_score = None
+                    job.best_cv_score = None
                     total_scored += 1
-                    db.commit()
                     continue
+                to_score.append((job, cv_texts, depth, preloaded_text))
+            db.commit()  # persist sentinels
 
-                # Pass db so _get_job_text can fetch live page if text is missing
-                # (preloaded_text short-circuits the refetch inside _score_job_inner).
-                result = await score_job_sync(job, cv_texts, db=db, depth=depth, preloaded_text=preloaded_text)
+            # ── Phase 2 (parallel): LLM calls. db=None — with preloaded_text the
+            # inner scorer never touches the shared session (it opens its own
+            # short-lived one for settings), so gather is session-safe. Actual
+            # concurrency is capped by the scoring semaphore inside score_job_sync
+            # (scoring_max_concurrent, default 5); previously this loop awaited
+            # jobs one at a time, so the semaphore never saw >1.
+            results = await asyncio.gather(
+                *[score_job_sync(j, c, db=None, depth=d, preloaded_text=t)
+                  for (j, c, d, t) in to_score],
+                return_exceptions=True,
+            )
+
+            # ── Phase 3 (sequential, shared session): apply results + alerts.
+            for (job, cv_texts, depth, _t), result in zip(to_score, results):
+                if isinstance(result, BaseException):
+                    logger.warning(
+                        f"Job {job.id} ({job.company} - {job.title}): scoring raised "
+                        f"{type(result).__name__}: {result} — transient, will retry next pass"
+                    )
+                    total_scored += 1
+                    continue
                 if result:
                     scores = result.get("scores", {})
                     job.cv_scores = scores
@@ -523,11 +542,8 @@ async def analyze_unscored_jobs(status: str = "saved"):
                         f"{score_summary}, Best={job.best_cv}"
                     )
 
-                    # Check if should trigger Telegram alert
-                    threshold_row = db.query(Setting).filter(Setting.key == "fit_score_threshold").first()
-                    threshold = int(threshold_row.value) if threshold_row else 60
-
-                    if best_score >= threshold:
+                    # Check if should trigger Telegram alert (threshold hoisted above loop)
+                    if best_score >= alert_threshold:
                         try:
                             from backend.notifier.telegram import send_job_alert
                             await send_job_alert({
@@ -548,7 +564,7 @@ async def analyze_unscored_jobs(status: str = "saved"):
                     )
 
                 total_scored += 1
-                db.commit()
+            db.commit()  # one commit per batch (was per job)
 
         logger.info(f"Analysis pipeline complete: {total_scored} jobs processed")
 

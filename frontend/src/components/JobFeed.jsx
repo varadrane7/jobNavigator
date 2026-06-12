@@ -401,7 +401,7 @@ export default function JobFeed() {
           if (idx + 1 < currentJobs.length) selectJobAt(idx + 1)
           api.patch(`/jobs/${job.id}`, { saved: newSaved, status: newStatus }).then(() => {
             if (newSaved && !(job.cv_scores && Object.keys(job.cv_scores).length)) watchForScoreRef.current(job.id)
-            fetchJobsRef.current()
+            patchJobLocallyRef.current(job.id, { saved: newSaved, status: newStatus })
           }).catch(console.error)
           break
         }
@@ -415,8 +415,8 @@ export default function JobFeed() {
           }
           showUndoRef.current(job.id, job.status, job.saved, `Skipped "${job.title}"`)
           api.patch(`/jobs/${job.id}`, { status: 'skip' }).then(() => {
-            fetchJobsRef.current()
-            // After refetch, the skipped job is gone, so adjust index back
+            patchJobLocallyRef.current(job.id, { status: 'skip' })
+            // The skipped job left the list, so adjust index back
             if (nextJob) {
               selectedIndexRef.current = idx
             }
@@ -472,10 +472,28 @@ export default function JobFeed() {
     })
   }
 
+  // SF-1: triage actions (save/skip/apply) already advance the UI optimistically —
+  // patch the one affected job in local state instead of refetching the whole page.
+  // If the new status falls outside the active status filter, the row leaves the
+  // list (exactly what the old refetch did). Reconciliation still happens on any
+  // filter change / pagination / undo / bulk action, which all refetch.
+  const patchJobLocally = useCallback((jobId, changes) => {
+    const statusFilter = filters.status || []
+    const leavesView = statusFilter.length > 0 && changes.status && !statusFilter.includes(changes.status)
+    if (leavesView) {
+      setJobs(prev => prev.filter(j => j.id !== jobId))
+      setTotal(t => Math.max(0, t - 1))
+    } else {
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, ...changes } : j))
+    }
+  }, [filters.status])
+  const patchJobLocallyRef = useRef(patchJobLocally)
+  useEffect(() => { patchJobLocallyRef.current = patchJobLocally }, [patchJobLocally])
+
   const updateJob = async (jobId, updates) => {
     try {
       await api.patch(`/jobs/${jobId}`, updates)
-      fetchJobs()
+      patchJobLocally(jobId, updates)
     } catch (e) { console.error(e) }
   }
 
@@ -555,7 +573,7 @@ export default function JobFeed() {
     showUndo(job.id, prevStatus, prevSaved, `Skipped "${job.title}"`)
     try {
       await api.patch(`/jobs/${job.id}`, { status: 'skip' })
-      fetchJobs()
+      patchJobLocally(job.id, { status: 'skip' })
     } catch (e) { console.error(e) }
   }
 
@@ -564,9 +582,10 @@ export default function JobFeed() {
     advanceToNext(job)
     try {
       const willSave = !job.saved
-      await api.patch(`/jobs/${job.id}`, { saved: willSave, status: job.saved ? 'new' : 'saved' })
+      const newStatus = job.saved ? 'new' : 'saved'
+      await api.patch(`/jobs/${job.id}`, { saved: willSave, status: newStatus })
       if (willSave && !(job.cv_scores && Object.keys(job.cv_scores).length)) watchForScore(job.id)
-      fetchJobs()
+      patchJobLocally(job.id, { saved: willSave, status: newStatus })
     } catch (e) { console.error(e) }
   }
 

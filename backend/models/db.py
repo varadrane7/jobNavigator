@@ -7,7 +7,7 @@ from sqlalchemy import (
     ForeignKey, JSON, Index, create_engine, text
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import backref, declarative_base, relationship, sessionmaker
+from sqlalchemy.orm import backref, column_property, declarative_base, deferred, relationship, sessionmaker
 
 from backend.config import DATABASE_URL
 
@@ -132,14 +132,24 @@ class Job(Base):
     best_cv_score = Column(Float, nullable=True, index=True)
     best_cv = Column(String, nullable=True)
     scoring_report = Column(JSON, nullable=True)  # Structured report: summary, keywords, requirement mapping
-    cached_page_html = Column(Text, nullable=True)
-    cached_page_text = Column(Text, nullable=True)
+    # deferred: avg 16 KB / 7 KB per row — list queries were hydrating both just to
+    # compute one boolean. They lazy-load on attribute access (single-row contexts:
+    # /cached-page endpoint, _get_job_text fallback). Use `has_cached_page` (SQL
+    # expression, no blob load) for the boolean.
+    cached_page_html = deferred(Column(Text, nullable=True))
+    cached_page_text = deferred(Column(Text, nullable=True))
     page_cached_at = Column(DateTime(timezone=True), nullable=True)
     cache_error = Column(Text, nullable=True)
     seen = Column(Boolean, default=False)
     saved = Column(Boolean, default=False)
     status = Column(String, default="new")  # new | saved | applied | skip
     discovered_at = Column(DateTime(timezone=True), default=utcnow)
+
+    # Computed in SQL at query time — answers "is a page cached?" without ever
+    # loading the deferred blob columns. (.columns[0] reaches the raw Column
+    # inside the deferred() ColumnProperty — calling .isnot on the property
+    # itself yields NotImplemented, not a SQL expression.)
+    has_cached_page = column_property(cached_page_html.columns[0].isnot(None))
 
     search = relationship("Search", backref="jobs")
     applications = relationship("Application", back_populates="job")

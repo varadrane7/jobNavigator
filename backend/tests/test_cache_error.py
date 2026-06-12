@@ -69,16 +69,19 @@ async def test_cache_job_page_populates_cache_error_on_playwright_failure(monkey
     except Exception:
         pass  # cache_error should still be populated even if the function raises
 
-    # Re-query for fresh state
+    # Re-query for fresh state. cached_page_html is a deferred column — read it
+    # while the session is still open (post-close access raises DetachedInstanceError).
     s = TestSession()
     back = s.query(Job).filter(Job.id == job.id).first()
+    cache_error = back.cache_error
+    cached_html = back.cached_page_html
     s.close()
     # The cache_error field should contain something — exact text depends on the error path
     # Relaxed assertion: it's non-empty
-    assert back.cache_error is not None or back.cached_page_html is not None, (
+    assert cache_error is not None or cached_html is not None, (
         f"Expected either cache_error or cached_page_html to be set; both are None. "
-        f"cache_error={back.cache_error}, cached_page_html={back.cached_page_html}"
+        f"cache_error={cache_error}, cached_page_html={cached_html}"
     )
     # If cached_page_html is None, cache_error must be set
-    if not back.cached_page_html:
-        assert back.cache_error is not None
+    if not cached_html:
+        assert cache_error is not None

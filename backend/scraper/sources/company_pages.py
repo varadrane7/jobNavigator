@@ -111,11 +111,15 @@ def _needs_browser(urls):
 
 # ── Per-company scraper ──────────────────────────────────────────────────────
 
-async def scrape_single_career_page(company: Company, shared_browser=None) -> dict:
+async def scrape_single_career_page(company: Company, shared_browser=None,
+                                     known_external_ids: set = None) -> dict:
     """Scrape a single company career page using Playwright.
 
     Uses company.scrape_urls (unified list of career/search URLs).
     If shared_browser is provided, uses it instead of launching a new one.
+    `known_external_ids` lets the batch caller load the dedup set once for the
+    whole run instead of re-materializing all ~14k IDs per company; it is
+    mutated in place (new IDs added) so later companies see earlier inserts.
     """
     start_time = time.time()
 
@@ -207,7 +211,12 @@ async def scrape_single_career_page(company: Company, shared_browser=None) -> di
         db = SessionLocal()
         new_jobs = 0
         try:
-            existing_ids = get_existing_external_ids(db)
+            existing_ids = known_external_ids if known_external_ids is not None else get_existing_external_ids(db)
+            # Per-company hoists for the per-job H-1B scan (avoids a Settings
+            # read + JSON parse and a company lookup per job).
+            from backend.analyzer.h1b_checker import load_exclusion_phrases
+            _phrases = load_exclusion_phrases(db)
+            _company_lookup = {company.name.strip().lower(): company}
 
             # Pre-filter jobs that need description fetching (not already in DB)
             jobs_needing_desc = []
@@ -255,7 +264,7 @@ async def scrape_single_career_page(company: Company, shared_browser=None) -> di
                 try:
                     from backend.analyzer.h1b_checker import check_job_h1b
                     from backend.analyzer.salary_extractor import apply_salary_to_job
-                    await check_job_h1b(job, db)
+                    await check_job_h1b(job, db, company_lookup=_company_lookup, phrases=_phrases)
                     h1b_median = company.h1b_median_salary if hasattr(company, 'h1b_median_salary') else None
                     apply_salary_to_job(job, h1b_median)
                 except Exception as analysis_err:
@@ -383,7 +392,13 @@ async def scrape_career_pages(force: bool = False):
             shared_pw, shared_browser = await _get_browser()
             logger.info("Playwright: launched shared browser for batch scrape")
 
+        # Dedup set loaded ONCE for the whole batch (was re-materializing all
+        # ~14k external_ids per company). scrape_single_career_page mutates it
+        # in place, so later companies also dedup against earlier inserts.
+        batch_external_ids = get_existing_external_ids(db)
+
         now = datetime.now(timezone.utc)
+        sweep_needed = False
         for company in companies:
             # Per-company interval check (skipped for manual triggers)
             if not force:
@@ -394,7 +409,8 @@ async def scrape_career_pages(force: bool = False):
                         logger.debug(f"Skipping {company.name}: scraped {elapsed:.0f}m ago (interval={interval}m)")
                         continue
 
-            result = await scrape_single_career_page(company, shared_browser=shared_browser)
+            result = await scrape_single_career_page(company, shared_browser=shared_browser,
+                                                     known_external_ids=batch_external_ids)
 
             is_warning = (
                 result.get("jobs_found", 0) == 0
@@ -417,12 +433,18 @@ async def scrape_career_pages(force: bool = False):
                 f"Playwright {company.name}: found={result['jobs_found']}, new={result['new_jobs']}"
             )
 
-            # Auto CV-score if company has auto_scoring_depth enabled
+            # Auto CV-score: mark for ONE pool sweep at batch end. The sweep
+            # itself is a common pool (it picks up any unscored auto-score jobs,
+            # including retries from earlier failed passes) — running it after
+            # every company just re-walked the same pool N times per batch.
             if company.auto_scoring_depth in ("light", "full") and result.get("new_jobs", 0) > 0:
-                from backend.analyzer.cv_scorer import analyze_unscored_jobs
-                await analyze_unscored_jobs(status="new")
+                sweep_needed = True
 
             await asyncio.sleep(2)
+
+        if sweep_needed:
+            from backend.analyzer.cv_scorer import analyze_unscored_jobs
+            await analyze_unscored_jobs(status="new")
 
     finally:
         if shared_browser:
