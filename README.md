@@ -49,11 +49,11 @@ Self-hosted job search automation — scrape any career portal or use job aggreg
                                      │
                                      ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                               AI CV SCORING                                 │
+│                             AI RESUME SCORING                               │
 │                                                                             │
 │   Providers ── Claude API, Claude CLI, OpenAI, Ollama, OpenAI-compatible    │
 │   Depths ───── Light (scores only) or Full (report + keyword analysis)      │
-│   Multi-CV ─── Score against multiple CVs, compare fit per role             │
+│   Multi ────── Score against multiple resumes, compare fit per role         │
 │                                                                             │
 └────────────────────────────────────┬────────────────────────────────────────┘
                                      │
@@ -84,7 +84,7 @@ Self-hosted job search automation — scrape any career portal or use job aggreg
 | Feature | Description |
 |---------|-------------|
 | **Multi-Source Discovery** | 6 scraping tiers: career pages (Playwright + 11 ATS), JobSpy (4 boards), LinkedIn Personal, Levels.fyi, Jobright.ai, Chrome Extension |
-| **AI CV Scoring** | Multi-provider (Claude, OpenAI, Ollama), light/full depth, per-CV comparison, keyword analysis, requirement mapping, ATS tips. **Prompt caching** on Anthropic cuts repeat-scoring cost ~50%. |
+| **AI Resume Scoring** | Multi-provider (Claude, OpenAI, Ollama), light/full depth, per-resume comparison, keyword analysis, requirement mapping, ATS tips. **Prompt caching** on Anthropic cuts repeat-scoring cost ~50%. |
 | **Resume Builder** | 8 templates (auto-discovered - add yours), AI tailoring per job, PDF export, tracer links to track opens (cover letters too) |
 | **Cover Letters** | AI-generated per job, grounded in the paired resume + persona; editable voice presets, 8 templates, PDF export, prompt-cached generation |
 | **Smart Dedup** | URL-hash dedup with configurable tracking-param stripping; content hash stored per job for cross-source matching |
@@ -151,7 +151,7 @@ Found a vulnerability? See [SECURITY.md](SECURITY.md). Please don't open public 
 
 ## Privacy
 
-**JobNavigator is self-hosted — NOT a hosted service.** Your CV, job data, and credentials stay on your machine. Data is sent only to the AI provider you configure. We do not collect, store, or have access to any of your data.
+**JobNavigator is self-hosted — NOT a hosted service.** Your resume, job data, and credentials stay on your machine. Data is sent only to the AI provider you configure. We do not collect, store, or have access to any of your data.
 
 ## Disclaimer
 
