@@ -121,13 +121,13 @@ def list_jobs(
 
     # Sort
     if sort_by == "score":
-        q = q.order_by(desc(Job.best_cv_score).nullslast())
+        q = q.order_by(desc(Job.best_cv_score).nullslast(), desc(Job.discovered_at), desc(Job.id))
     elif sort_by == "salary":
-        q = q.order_by(desc(Job.salary_max).nullslast())
+        q = q.order_by(desc(Job.salary_max).nullslast(), desc(Job.discovered_at), desc(Job.id))
     elif sort_by == "company":
-        q = q.order_by(asc(Job.company))
+        q = q.order_by(asc(Job.company), desc(Job.discovered_at), desc(Job.id))
     else:  # "date" (default)
-        q = q.order_by(desc(Job.discovered_at))
+        q = q.order_by(desc(Job.discovered_at), desc(Job.id))
 
     jobs = q.offset(offset).limit(limit).all()
 

@@ -55,6 +55,15 @@ const timeAgo = (dateStr) => {
   return `${days}d ago`
 }
 
+const safeRender = (val) => {
+  if (val === null || val === undefined) return ''
+  if (typeof val === 'object') {
+    if (val.requirement) return safeRender(val.requirement)
+    return JSON.stringify(val)
+  }
+  return String(val)
+}
+
 export default function JobFeed() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -1252,7 +1261,7 @@ export default function JobFeed() {
             <div className="p-5 space-y-4">
 
               {/* Summary */}
-              {rpt.summary && <p className="text-sm text-gray-700 dark:text-gray-300">{rpt.summary}</p>}
+              {rpt.summary && <p className="text-sm text-gray-700 dark:text-gray-300">{safeRender(rpt.summary)}</p>}
 
               {/* Keyword coverage */}
               {rpt.keyword_coverage_pct != null && (
@@ -1272,10 +1281,10 @@ export default function JobFeed() {
               {(rpt.matched_keywords?.length > 0 || rpt.missing_keywords?.length > 0) && (
                 <div className="flex flex-wrap gap-1.5">
                   {(rpt.matched_keywords || []).map(kw => (
-                    <span key={kw} className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">{kw}</span>
+                    <span key={kw} className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">{safeRender(kw)}</span>
                   ))}
                   {(rpt.missing_keywords || []).map(kw => (
-                    <span key={kw} className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-300">{kw}</span>
+                    <span key={kw} className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-300">{safeRender(kw)}</span>
                   ))}
                 </div>
               )}
@@ -1301,11 +1310,11 @@ export default function JobFeed() {
                       {rpt.requirement_mapping.map((req, i) => (
                         <tr key={i} className="border-b dark:border-gray-700">
                           <td className="py-1.5 pr-2 text-gray-700 dark:text-gray-300 align-top break-words">
-                            {req.requirement}
-                            {req.severity === 'preferred' && <span className="ml-1 text-[9px] text-gray-400">(preferred)</span>}
+                            {safeRender(req?.requirement)}
+                            {req?.severity === 'preferred' && <span className="ml-1 text-[9px] text-gray-400">(preferred)</span>}
                           </td>
-                          <td className="py-1.5 pr-2 text-gray-600 dark:text-gray-400 align-top break-words">{req.matched ? (req.cv_evidence || req.cv_match || '-') : '-'}</td>
-                          <td className={`py-1.5 text-center ${req.matched ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>{req.matched ? '\u2713' : '\u2717'}</td>
+                          <td className="py-1.5 pr-2 text-gray-600 dark:text-gray-400 align-top break-words">{req?.matched ? (safeRender(req?.cv_evidence) || safeRender(req?.cv_match) || '-') : '-'}</td>
+                          <td className={`py-1.5 text-center ${req?.matched ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>{req?.matched ? '\u2713' : '\u2717'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1318,7 +1327,7 @@ export default function JobFeed() {
                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
                   <h3 className="text-xs font-semibold text-red-700 dark:text-red-400 mb-1">Hard Blockers</h3>
                   {rpt.hard_blockers.map((b, i) => (
-                    <p key={i} className="text-xs text-red-600 dark:text-red-400">{b}</p>
+                    <p key={i} className="text-xs text-red-600 dark:text-red-400">{safeRender(b)}</p>
                   ))}
                 </div>
               )}
@@ -1327,7 +1336,7 @@ export default function JobFeed() {
               {rpt.ats_tip && (
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
                   <h3 className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-1">ATS Tip</h3>
-                  <p className="text-xs text-blue-600 dark:text-blue-400">{rpt.ats_tip}</p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400">{safeRender(rpt.ats_tip)}</p>
                 </div>
               )}
             </div>

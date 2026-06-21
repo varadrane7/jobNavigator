@@ -27,7 +27,7 @@ html, body {
 
 .page {
   width: {{ '8.5in' if page_format == 'letter' else '210mm' }};
-  padding: 0.5in 0.55in;
+  padding: 0.1in 0.55in 0.1in 0.55in;
   margin: 0 auto;
 }
 
@@ -98,6 +98,7 @@ html, body {
 }
 
 .entry-title { font-weight: 600; font-size: 10.5pt; }
+.entry-title a { color: inherit; text-decoration: none; }
 .entry-date {
   font-size: 10pt;
   color: #555;
@@ -281,8 +282,14 @@ ul.bullets li::before {
     <div class="section-title">Projects</div>
     {% for project in projects %}
     <div class="entry">
-      <div class="entry-title">{{ project.name or project.title }}</div>
-      {% if project.url %}<div class="entry-url"><a href="{{ project.url }}">{{ project.url }}</a></div>{% endif %}
+      <div class="entry-title">
+        {% if project.url %}
+          {% set project_href = project.url if (project.url.startswith('http') or project.url.startswith('mailto')) else 'https://' ~ project.url %}
+          <a href="{{ project_href }}">{{ project.name or project.title }}</a>
+        {% else %}
+          {{ project.name or project.title }}
+        {% endif %}
+      </div>
       {% if project.description %}<div class="entry-description">{{ project.description }}</div>{% endif %}
       {% if project.bullets %}
       <ul class="bullets">

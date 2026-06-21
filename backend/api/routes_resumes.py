@@ -636,7 +636,9 @@ async def _tailor_impl(base_resume_id: str, job_id: str | None, job_description_
                 "job description using the JD's exact vocabulary. Do NOT invent experience, "
                 "skills, or facts not present in the original resume. Only reformulate, "
                 "reframe, and reorder existing content. If something is missing, map to "
-                "the closest truthful concept."
+                "the closest truthful concept. Be concise. Do not explain your reasoning. "
+                "Output ONLY the raw JSON object — no markdown, no preamble, no explanation. "
+                "Your entire response must be parseable by JSON.parse()."
             )
 
             from backend.analyzer.llm_client import call_cv_tailor_llm
@@ -655,7 +657,7 @@ async def _tailor_impl(base_resume_id: str, job_id: str | None, job_description_
 
             try:
                 async with track_llm_call("tailor", _provider, _model, job_id=job_id) as _tracker:
-                    _resp = await call_cv_tailor_llm(prompt, system, max_tokens=3000)
+                    _resp = await call_cv_tailor_llm(prompt, system, max_tokens=8000)
                     _tracker.usage = _resp.get("usage", _tracker.usage)
                     raw = _resp["text"]
             except Exception as e:

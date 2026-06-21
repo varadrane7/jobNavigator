@@ -108,3 +108,46 @@ def test_list_jobs_sort_by_score(api_client, test_db):
     scores = [j.get("best_score") for j in jobs if j.get("best_score")]
     assert len(scores) >= 2
     assert scores == sorted(scores, reverse=True), f"Expected desc sort, got: {scores}"
+
+
+def test_list_jobs_sort_by_score_deterministic(api_client, test_db):
+    """Jobs with identical scores should be sorted deterministically by discovered_at desc."""
+    from datetime import datetime, timezone, timedelta
+    from backend.models.db import Job
+    _seed_first_run(test_db)
+    
+    now = datetime.now(timezone.utc)
+    job1 = Job(
+        external_id="j1_det", content_hash="h1_det",
+        company="Acme", title="PM A",
+        url="https://x.com/1a", status="new",
+        best_cv_score=80.0, cv_scores={"Default": 80.0},
+        discovered_at=now - timedelta(hours=2)
+    )
+    job2 = Job(
+        external_id="j2_det", content_hash="h2_det",
+        company="Acme", title="PM B",
+        url="https://x.com/1b", status="new",
+        best_cv_score=80.0, cv_scores={"Default": 80.0},
+        discovered_at=now - timedelta(hours=1)
+    )
+    job3 = Job(
+        external_id="j3_det", content_hash="h3_det",
+        company="Acme", title="PM C",
+        url="https://x.com/1c", status="new",
+        best_cv_score=80.0, cv_scores={"Default": 80.0},
+        discovered_at=now
+    )
+    test_db.add(job1)
+    test_db.add(job2)
+    test_db.add(job3)
+    test_db.commit()
+
+    resp = api_client.get("/api/jobs?sort_by=score&status=new")
+    assert resp.status_code == 200
+    jobs = resp.json()["jobs"]
+    
+    # All have score 80.0. They should be sorted by discovered_at descending: job3, job2, job1
+    titles = [j["title"] for j in jobs]
+    assert titles == ["PM C", "PM B", "PM A"]
+

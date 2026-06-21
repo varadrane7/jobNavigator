@@ -11,7 +11,7 @@ def _get_setting(db, key, default=""):
     return row.value if row and row.value else default
 
 
-async def call_llm(prompt: str, system: str, max_tokens: int = 1200,
+async def call_llm(prompt: str, system: str, max_tokens: int = 15000,
                    cached_prefix: str | None = None) -> dict:
     """Route to configured LLM provider with retry + automatic fallback.
     Returns {text, usage} dict. Pass cached_prefix to enable prompt caching on Claude API."""
@@ -99,7 +99,7 @@ async def call_email_llm(prompt: str, system: str, max_tokens: int = 150) -> dic
     return await _dispatch(provider, model, api_key, base_url, prompt, system, max_tokens)
 
 
-async def call_cv_tailor_llm(prompt: str, system: str, max_tokens: int = 3000) -> dict:
+async def call_cv_tailor_llm(prompt: str, system: str, max_tokens: int = 15000) -> dict:
     """Route to CV-tailoring-specific LLM provider. Returns {text, usage}."""
     db = SessionLocal()
     try:

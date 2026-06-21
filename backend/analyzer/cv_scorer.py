@@ -308,8 +308,8 @@ async def _score_job_inner(job: Job, cv_texts: dict, db=None, depth="light", pre
     # PER-JOB SUFFIX: just the JD. Changes every call.
     user_prompt = f"JOB DESCRIPTION:\n{job_text[:8000]}"
 
-    max_tokens = 2000 if depth == "full" else 600
-    system_msg = "You are a senior tech recruiter evaluating candidate-job fit. Score precisely using the rubric provided. Return ONLY valid JSON, no markdown."
+    max_tokens = 15000 if depth == "full" else 8000
+    system_msg = "You are a senior tech recruiter evaluating candidate-job fit. Score precisely using the rubric provided. Be concise. Do not explain your reasoning. Output ONLY the raw JSON object — no markdown, no preamble, no explanation. Your entire response must be parseable by JSON.parse()."
 
     purpose = "score_full" if depth == "full" else "score_light"
     started = time.monotonic()
@@ -408,7 +408,7 @@ async def analyze_unscored_jobs(status: str = "saved"):
             logger.warning("No CVs uploaded yet, skipping analysis pipeline")
             return
 
-        from sqlalchemy import or_, text, func
+        from sqlalchemy import or_, text, func, cast, String
         from backend.models.db import Search, Company as CompanyModel
         total_scored = 0
         batch_size = 20
@@ -445,7 +445,7 @@ async def analyze_unscored_jobs(status: str = "saved"):
 
         while True:
             q = db.query(Job).filter(
-                (Job.cv_scores == None) | (Job.cv_scores == text("'{}'::jsonb")),
+                (Job.cv_scores == None) | (cast(Job.cv_scores, String) == '{}'),
             )
             if status == "saved":
                 q = q.filter(Job.saved == True)
