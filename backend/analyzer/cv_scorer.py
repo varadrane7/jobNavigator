@@ -280,6 +280,8 @@ async def _score_job_inner(job: Job, cv_texts: dict, db=None, depth="light", pre
         provider_for_log = provider_row.value if provider_row and provider_row.value else "claude_api"
         cache_row = settings_db.query(Setting).filter(Setting.key == "prompt_caching_enabled").first()
         caching_enabled = (cache_row.value if cache_row else "true").strip().lower() == "true"
+        tools_row = settings_db.query(Setting).filter(Setting.key == "llm_enable_tools").first()
+        tools_enabled = (tools_row.value if tools_row else "false").strip().lower() == "true"
     finally:
         if not db:
             settings_db.close()
@@ -309,7 +311,17 @@ async def _score_job_inner(job: Job, cv_texts: dict, db=None, depth="light", pre
     user_prompt = f"JOB DESCRIPTION:\n{job_text[:8000]}"
 
     max_tokens = 15000 if depth == "full" else 8000
-    system_msg = "You are a senior tech recruiter evaluating candidate-job fit. Score precisely using the rubric provided. Be concise. Do not explain your reasoning. Output ONLY the raw JSON object — no markdown, no preamble, no explanation. Your entire response must be parseable by JSON.parse()."
+    if tools_enabled:
+        system_msg = (
+            "You are a senior tech recruiter evaluating candidate-job fit. "
+            "You have access to a web_search tool. "
+            "Use it to search for details on public profiles of professionals in similar roles, standard role requirements, typical tech stacks, or company context if needed to calibrate the candidate's scoring. "
+            "Score precisely using the rubric provided. "
+            "Be concise. Do not explain your reasoning. Output ONLY the raw JSON object — no markdown, no preamble, no explanation. "
+            "Your entire response must be parseable by JSON.parse()."
+        )
+    else:
+        system_msg = "You are a senior tech recruiter evaluating candidate-job fit. Score precisely using the rubric provided. Be concise. Do not explain your reasoning. Output ONLY the raw JSON object — no markdown, no preamble, no explanation. Your entire response must be parseable by JSON.parse()."
 
     purpose = "score_full" if depth == "full" else "score_light"
     started = time.monotonic()

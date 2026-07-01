@@ -254,26 +254,133 @@ async def _call_claude_code(prompt: str, system: str, model: str, max_tokens: in
 
 
 async def _call_openai(prompt: str, system: str, model: str, api_key: str, max_tokens: int, base_url: str = None) -> dict:
-    """Call OpenAI or OpenAI-compatible API. Returns {text, usage}."""
+    """Call OpenAI or OpenAI-compatible API. Supports tool calls if enabled."""
     from openai import AsyncOpenAI
+    from backend.models.db import SessionLocal, Setting
+    import json
+
+    db = SessionLocal()
+    try:
+        tools_setting = db.query(Setting).filter(Setting.key == "llm_enable_tools").first()
+        tools_enabled = (tools_setting.value if tools_setting else "false").strip().lower() == "true"
+    finally:
+        db.close()
+
     kwargs = {"api_key": api_key}
     if base_url:
         kwargs["base_url"] = base_url
     client = AsyncOpenAI(**kwargs)
-    response = await client.chat.completions.create(
-        model=model,
-        max_tokens=max_tokens,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    usage = response.usage
+
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": prompt},
+    ]
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "web_search",
+                "description": "Perform a general web search for information on public profiles, typical job requirements, company details, or tech stacks.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The search query to execute"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }
+    ]
+
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+
+    for iteration in range(10):
+        call_kwargs = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+        }
+        if tools_enabled:
+            call_kwargs["tools"] = tools
+
+        response = await client.chat.completions.create(**call_kwargs)
+        
+        usage = response.usage
+        if usage:
+            total_prompt_tokens += getattr(usage, "prompt_tokens", 0)
+            total_completion_tokens += getattr(usage, "completion_tokens", 0)
+
+        message = response.choices[0].message
+        
+        # If no tool calls requested, we are done
+        if not getattr(message, "tool_calls", None):
+            return {
+                "text": (message.content or "").strip(),
+                "usage": {
+                    "input_tokens": total_prompt_tokens,
+                    "output_tokens": total_completion_tokens,
+                    "cache_read_tokens": 0,
+                    "cache_write_tokens": 0,
+                },
+            }
+
+        # Append assistant's tool call message to the list
+        assistant_msg = {
+            "role": "assistant",
+            "content": message.content,
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments
+                    }
+                } for tc in message.tool_calls
+            ]
+        }
+        messages.append(assistant_msg)
+
+        # Execute each tool call
+        for tc in message.tool_calls:
+            tool_name = tc.function.name
+            tool_args_str = tc.function.arguments
+            logger.info(f"OpenAI LLM requested tool call: {tool_name} with arguments: {tool_args_str}")
+
+            try:
+                tool_args = json.loads(tool_args_str)
+            except Exception as e:
+                tool_result = f"Error parsing arguments: {e}"
+            else:
+                from backend.analyzer.tools import TOOL_FUNCTIONS
+                if tool_name in TOOL_FUNCTIONS:
+                    try:
+                        tool_result = await TOOL_FUNCTIONS[tool_name](**tool_args)
+                    except Exception as e:
+                        tool_result = f"Error executing tool {tool_name}: {e}"
+                else:
+                    tool_result = f"Error: tool '{tool_name}' not found."
+
+            tool_msg = {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "name": tool_name,
+                "content": str(tool_result)
+            }
+            messages.append(tool_msg)
+
+    # If we loop too many times, return whatever content was last generated
+    final_text = messages[-1].get("content") if messages else ""
     return {
-        "text": response.choices[0].message.content.strip(),
+        "text": final_text.strip(),
         "usage": {
-            "input_tokens": getattr(usage, "prompt_tokens", 0),
-            "output_tokens": getattr(usage, "completion_tokens", 0),
+            "input_tokens": total_prompt_tokens,
+            "output_tokens": total_completion_tokens,
             "cache_read_tokens": 0,
             "cache_write_tokens": 0,
         },

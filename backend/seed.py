@@ -86,6 +86,8 @@ DEFAULT_SETTINGS = {
     "tailoring_max_concurrent": ("2", "Max concurrent resume-tailoring LLM calls"),
     "tailor_auto_quick_score": ("light", "After tailoring finishes, auto-launch a score chain. Values: 'off' | 'light' | 'full'. Default 'light'. Legacy 'true'='light', 'false'='off'."),
     "prompt_caching_enabled": ("true", "Use Anthropic prompt caching on CV scoring (claude_api only; ~50% cheaper input tokens on same-batch calls). Set false to disable as a rollback lever."),
+    "llm_enable_tools": ("false", "Enable tool use (web search) for reasoning models on OpenAI/openai_compat providers"),
+    "searxng_url": ("http://host.docker.internal:8043", "Searxng URL for web search tool"),
     "scoring_default_depth": ("light", "Default scoring depth: light or full"),
     "on_save_action": ("off", "Action when job is saved: off, light, or full"),
     "email_llm_enabled": ("false", "Enable LLM second pass for ambiguous email classification"),
